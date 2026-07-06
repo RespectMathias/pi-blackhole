@@ -17,6 +17,7 @@ import {
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_RECORDED,
 } from "../om/ledger/index.js";
+import { handleCleanup } from "./cleanup.js";
 
 const formatTokens = (n: number): string => {
 	if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -31,11 +32,12 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	pi.registerCommand("blackhole", {
 		description:
 			"Compact conversation — structured summary (with observational memory when enabled). " +
-			"Subcommands: /blackhole configure (open settings overlay), " +
+			"Subcommands: /blackhole configure (settings overlay), /blackhole cleanup (remove orphaned files), " +
 			"/blackhole om-off (disable memory), /blackhole om-on (re-enable memory).",
 		getArgumentCompletions: (prefix: string) => {
 			const subcommands = [
 				{ value: "configure", label: "Open configuration overlay to edit settings [configure]" },
+				{ value: "cleanup", label: "Find and remove orphaned pending files [cleanup]" },
 				{ value: "om-off", label: "Disable observational memory [om-off]" },
 				{ value: "om-on", label: "Enable observational memory [om-on]" },
 			];
@@ -60,6 +62,10 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 						ctx.ui.notify("Failed to save configuration — the config file may be read-only (e.g., managed by Nix).", "warning");
 					}
 				}
+				return;
+			}
+			if (trimmed === "cleanup") {
+				await handleCleanup(ctx);
 				return;
 			}
 			if (trimmed === "om-off") {
