@@ -71,7 +71,11 @@ const mergeHeaderSection = (header: string, prev: string, fresh: string): string
   const freshLines = fresh.split("\n").filter(isClean);
   const combined = [...new Set([...prevLines, ...freshLines])];
   const CAP = header === "Session Goal" ? 8 : header === "Commits" ? 8 : 15;
-  const capped = combined.length > CAP ? combined.slice(-CAP) : combined;
+  // Session Goal: keep first items so the original first message persists
+  // Other sections: keep last items (fresh overrides stale)
+  const capped = combined.length > CAP
+    ? (header === "Session Goal" ? combined.slice(0, CAP) : combined.slice(-CAP))
+    : combined;
   if (capped.length === 0) return "";
   return `[${header}]\n${capped.join("\n")}`;
 };

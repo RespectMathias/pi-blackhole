@@ -18,17 +18,19 @@ describe("vcc-summarize robust merging and stripping", () => {
       expect(r).toContain("file1.ts");
     });
 
-    it("caps Session Goal at 8 items", () => {
-      const goals = Array.from({ length: 10 }, (_, i) => `- Goal ${i}`).join("\n");
+    it("caps Session Goal at 8 items, preserving first goals at top", () => {
+      // 7 prev goals + 1 fresh = 8; slice(0, CAP) keeps original goals first
+      const goals = Array.from({ length: 7 }, (_, i) => `- Goal ${i}`).join("\n");
       const previousSummary = `[Session Goal]\n${goals}\n\n---\n\n[user]\ninit`;
-      // To ensure fresh is NOT empty and triggers merge, we provide a message that will be extracted as a goal.
-      // Based on goals.ts, "Goal: ..." or similar should work.
       const r = compile({ messages: [userMsg("Goal: Final Step")], previousSummary });
       const headerPart = r.split("\n\n---\n\n")[0];
-      // Filter for exactly bullet points
       const lines = headerPart.split("\n").filter(l => l.startsWith("- "));
       expect(lines.length).toBe(8);
+      // First item is from previous (preserved)
+      expect(lines[0]).toBe("- Goal 0");
+      // Last item is the fresh one (appended)
       expect(lines[lines.length - 1]).toContain("Final Step");
+      expect(lines[lines.length - 1]).toMatch(/\(#0\)$/);
     });
 
     it("caps Commits at 8 items", () => {
