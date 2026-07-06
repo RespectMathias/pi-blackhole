@@ -61,7 +61,7 @@ export const extractCommits = (blocks: NormalizedBlock[]): CommitInfo[] => {
 
     // ── Case 1: tool_call (agent calls bash tool) ──
     if (b.kind === "tool_call" && b.name === "bash") {
-      const cmd = typeof b.args.command === "string" ? b.args.command : "";
+      const cmd = (b.args && typeof b.args.command === "string") ? b.args.command : "";
       const message = tryExtractMessage(cmd);
       if (!message) continue;
 

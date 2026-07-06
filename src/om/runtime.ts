@@ -95,7 +95,7 @@ export class Runtime {
 	 * Returns true if emitted, false if suppressed (already emitted earlier).
 	 */
 	tryEmitInfo(hasUI: boolean, ui: { notify: Notify } | undefined, message: string): boolean {
-		if (!hasUI || !ui) return false;
+		if (!hasUI || !ui || typeof ui.notify !== "function") return false;
 		if (this.hasEmittedInfoThisTurn) return false;
 		this.hasEmittedInfoThisTurn = true;
 		try {
