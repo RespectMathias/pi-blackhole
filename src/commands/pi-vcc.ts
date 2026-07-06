@@ -32,8 +32,8 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	pi.registerCommand("blackhole", {
 		description:
 			"Compact conversation — structured summary (with observational memory when enabled). " +
-			"Subcommands: configure (settings overlay), cleanup (remove orphaned files), " +
-			"om-off / om-on (disable / re-enable memory).",
+			"Subcommands: [configure] settings overlay, [cleanup] remove orphaned files, " +
+			"[om-off] / [om-on] disable / re-enable memory.",
 		getArgumentCompletions: (prefix: string) => {
 			const subcommands = [
 				{ value: "configure", label: "Open configuration overlay to edit settings [configure]" },
