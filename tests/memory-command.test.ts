@@ -26,6 +26,11 @@ function createMockEnvironment() {
 
 	const runtime = {
 		ensureConfig: vi.fn(),
+		resetInfoGate: vi.fn(),
+		tryEmitInfo: vi.fn((hasUI: boolean, ui: any, msg: string) => {
+			if (!hasUI || !ui) return;
+			try { ui.notify(msg, "info"); } catch { /* stale ctx */ }
+		}),
 		config: {
 			observeAfterTokens: 15_000,
 			reflectAfterTokens: 25_000,

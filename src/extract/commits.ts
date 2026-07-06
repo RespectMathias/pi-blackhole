@@ -18,41 +18,84 @@ const firstLineOf = (text: string): string => {
 const cleanMessage = (msg: string): string =>
   msg.replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
 
+/** Extract commit hash from git output text (tool_result or bash output). */
+const extractHashFromOutput = (text: string): string | undefined => {
+  const bracket = text.match(/\[\S+\s+([0-9a-f]{7,12})\]/);
+  if (bracket) return bracket[1];
+  const range = text.match(/\b([0-9a-f]{7,12})\.\.([0-9a-f]{7,12})\b/);
+  if (range) return range[2];
+  const plain = text.match(HASH_RE);
+  if (plain) return plain[1];
+  return undefined;
+};
+
+/** Try to extract a commit message from a git commit command string. */
+const tryExtractMessage = (cmd: string): string | undefined => {
+  if (!/\bgit\s+commit\b/.test(cmd)) return undefined;
+  const m = cmd.match(COMMIT_MSG_RE);
+  if (!m) return undefined;
+  const message = firstLineOf(cleanMessage(m[1] ?? m[2] ?? m[3] ?? ""));
+  return message || undefined;
+};
+
 /**
- * Extract git commits from bash tool calls (`git commit -m "..."`) and pair
- * with hash from the immediately following tool_result.
+ * Extract git commits from bash tool calls, bash execution messages,
+ * and user messages that wrap bash execution output (post-convertToLlm).
+ *
+ * Handles three block kinds:
+ * - tool_call (name: "bash") — agent tool call to the bash tool
+ * - bash — pi's internal bashExecution message
+ * - user — convertToLlm wraps bashExecution as "Ran `cmd`\n```\noutput\n```"
  */
 export const extractCommits = (blocks: NormalizedBlock[]): CommitInfo[] => {
   const commits: CommitInfo[] = [];
-
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (b.kind !== "tool_call" || b.name !== "bash") continue;
-    const cmd = typeof b.args.command === "string" ? b.args.command : "";
-    if (!/\bgit\s+commit\b/.test(cmd)) continue;
-    const m = cmd.match(COMMIT_MSG_RE);
-    if (!m) continue;
-    const message = firstLineOf(cleanMessage(m[1] ?? m[2] ?? m[3] ?? ""));
-    if (!message) continue;
-
-    let hash: string | undefined;
-    // Look at next tool_result for hash
-    for (let j = i + 1; j < Math.min(blocks.length, i + 3); j++) {
-      const r = blocks[j];
-      if (r.kind !== "tool_result") continue;
-      // Common git commit output: `[branch <hash>] message` or `<branch> <hash>..<hash>`
-      const bracket = r.text.match(/\[\S+\s+([0-9a-f]{7,12})\]/);
-      if (bracket) { hash = bracket[1]; break; }
-      const range = r.text.match(/\b([0-9a-f]{7,12})\.\.([0-9a-f]{7,12})\b/);
-      if (range) { hash = range[2]; break; }
-      const plain = r.text.match(HASH_RE);
-      if (plain) { hash = plain[1]; break; }
-    }
-
-    // Dedup by message+hash
+  const addCommit = (hash: string | undefined, message: string) => {
     const key = `${hash ?? ""}::${message}`;
     if (!commits.some((c) => `${c.hash ?? ""}::${c.message}` === key)) {
       commits.push({ hash, message });
+    }
+  };
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+
+    // ── Case 1: tool_call (agent calls bash tool) ──
+    if (b.kind === "tool_call" && b.name === "bash") {
+      const cmd = typeof b.args.command === "string" ? b.args.command : "";
+      const message = tryExtractMessage(cmd);
+      if (!message) continue;
+
+      let hash: string | undefined;
+      for (let j = i + 1; j < Math.min(blocks.length, i + 3); j++) {
+        const r = blocks[j];
+        if (r.kind !== "tool_result") continue;
+        hash = extractHashFromOutput(r.text);
+        if (hash) break;
+      }
+      addCommit(hash, message);
+      continue;
+    }
+
+    // ── Case 2: bash execution message ──
+    if (b.kind === "bash") {
+      const message = tryExtractMessage(b.command);
+      if (!message) continue;
+      const hash = extractHashFromOutput(b.output);
+      addCommit(hash, message);
+      continue;
+    }
+
+    // ── Case 3: user message wrapping a bash execution (post-convertToLlm) ──
+    if (b.kind === "user") {
+      // Detect "Ran `git commit -m "..."`" pattern in user text
+      const ranCmd = b.text.match(/Ran\s+`((?:[^`\\]|\\.)*)`/);
+      if (!ranCmd) continue;
+      const message = tryExtractMessage(ranCmd[1]);
+      if (!message) continue;
+      // Extract output from the code block following the command
+      const codeBlock = b.text.match(/```\n([\s\S]*?)```/);
+      const hash = codeBlock ? extractHashFromOutput(codeBlock[1]) : undefined;
+      addCommit(hash, message);
     }
   }
 

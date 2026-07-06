@@ -28,6 +28,9 @@ function notifySafely(hasUI: boolean, ui: any, message: string, level: "info" | 
 
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
 	pi.on("agent_start", () => {
+		// Reset the info gate — allow one info notification during the new turn.
+		runtime.resetInfoGate();
+
 		// A new turn is starting — abort any pending auto-compaction wait.
 		// The new turn's own agent_end will re-evaluate the threshold and
 		// schedule a fresh wait if compaction is still needed.
@@ -50,6 +53,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 	runtime.ensureConfig(ctx.cwd);
+	// Reset the info gate — allow one notification during agent_end.
+	runtime.resetInfoGate();
 
 		// Pass the config flag explicitly — this handler runs outside ALS context
 		// (agent_end events don't flow through consolidation's withDebugLogContext),
@@ -136,12 +141,8 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 
 		dbg("compaction_trigger.threshold_reached", { tokens, sessionId, hasUI });
 
-		notifySafely(
-			hasUI,
-			ui,
-			`Observational memory: compaction threshold reached (~${tokens.toLocaleString()} tokens); triggering compaction`,
-			"info",
-		);
+		runtime.tryEmitInfo(hasUI, ui,
+			`Observational memory: compaction threshold reached (~${tokens.toLocaleString()} tokens); triggering compaction`);
 
 	runtime.compactInFlight = true;
 	const controller = new AbortController();
@@ -189,12 +190,8 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 					runtime.compactInFlight = false;
 					runtime.autoCompactionController = null;
 					dbg("compaction_trigger.microtask.bail", { reason: "session_changed" });
-					notifySafely(
-						hasUI,
-						ui,
-						"Observational memory: compaction cancelled — session changed before compaction",
-						"info",
-					);
+					runtime.tryEmitInfo(hasUI, ui,
+						"Observational memory: compaction cancelled — session changed before compaction");
 					return;
 				}
 
@@ -229,12 +226,8 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 				runtime.compactInFlight = false;
 				runtime.autoCompactionController = null;
 				dbg("compaction_trigger.microtask.bail", { reason: "pressure_relieved", currentTokens, threshold: runtime.config.compactAfterTokens });
-				notifySafely(
-					hasUI,
-					ui,
-					"Observational memory: compaction skipped — another compaction already ran before deferred compaction",
-					"info",
-				);
+				runtime.tryEmitInfo(hasUI, ui,
+					"Observational memory: compaction skipped — another compaction already ran before deferred compaction");
 				return;
 			}
 
@@ -246,7 +239,7 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 				onComplete: (result: any) => {
 					runtime.compactInFlight = false;
 					dbg("compaction_trigger.onComplete", { result: !!result });
-					notifySafely(hasUI, ui, "Observational memory: compaction complete", "info");
+					runtime.tryEmitInfo(hasUI, ui, "Observational memory: compaction complete");
 				},
 				onError: (error: { message: string }) => {
 					runtime.compactInFlight = false;

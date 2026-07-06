@@ -33,6 +33,11 @@ function createMockEnvironment() {
 
 	const runtime: any = {
 		ensureConfig: vi.fn(),
+		resetInfoGate: vi.fn(),
+		tryEmitInfo: vi.fn((hasUI: boolean, ui: any, msg: string) => {
+			if (!hasUI || !ui) return;
+			try { ui.notify(msg, "info"); } catch { /* stale ctx */ }
+		}),
 		config: {
 			memory: true,
 			noAutoCompact: false,

@@ -314,6 +314,8 @@ describe("Consolidation trigger — guards with new config keys", () => {
 		const launchConsolidationTask = vi.fn();
 		const runtime = {
 			ensureConfig: vi.fn(),
+			resetInfoGate: vi.fn(),
+			tryEmitInfo: vi.fn(),
 			config: {
 				memory: true,
 				observeAfterTokens: 1, // always due
@@ -612,9 +614,11 @@ describe("Runtime — sessionFallback notification", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.reason).toContain("sessionFallback disabled");
-		expect(notify).toHaveBeenCalledTimes(2);
-		expect(notify.mock.calls[1]).toEqual([
-			expect.stringContaining("sessionFallback disabled"),
+		// The first info notification fires ("failed this cycle"), the
+		// second ("sessionFallback disabled") is gated by tryEmitInfo
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(notify.mock.calls[0]).toEqual([
+			expect.stringContaining("failed this cycle"),
 			"info",
 		]);
 	});

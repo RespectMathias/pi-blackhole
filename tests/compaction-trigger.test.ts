@@ -57,6 +57,12 @@ function captureHandler(args: {
 	};
 	const runtime = {
 		ensureConfig: vi.fn(),
+		resetInfoGate: vi.fn(),
+		// Passthrough: call ui.notify so tests can observe notification content
+		tryEmitInfo: vi.fn((hasUI: boolean, ui: any, msg: string) => {
+			if (!hasUI || !ui) return;
+			try { ui.notify(msg, "info"); } catch { /* stale ctx */ }
+		}),
 		config: {
 			overrideDefaultCompaction: args.overrideDefaultCompaction ?? true,
 			compactAfterTokens: args.compactAfterTokens ?? 3,
