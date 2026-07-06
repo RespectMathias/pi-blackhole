@@ -172,7 +172,7 @@ export class Runtime {
 				const entry = getCooldownEntry(candidate);
 				const reason = entry ? `: ${entry.reason}` : "";
 				this.tryEmitInfo(ctx.hasUI, ctx.ui,
-					`Observational memory: ${stageName} skipping ${key} (cooldown${reason})`);
+					`Observational memory: ${stageName} skipping ${key} (cooldown${reason} — details in cooldown log)`);
 				continue;
 			}
 
@@ -267,8 +267,11 @@ export class Runtime {
 			this.failedInCycle.add(modelKey(modelConfig));
 			return;
 		}
-		const reason = error instanceof Error ? error.message : String(error || "unknown error");
-		recordCooldown(modelConfig, reason, stage);
+		const rawReason = error instanceof Error ? error.message : String(error || "unknown error");
+		// Strip JSON body from API error messages for display cleanliness.
+		// Full details are in the cooldown log at ~/.pi/agent/pi-blackhole/pi-blackhole-cooldown.json
+		const brief = rawReason.replace(/\s*\{[\s\S]*\}\s*$/, "").trim();
+		recordCooldown(modelConfig, brief, stage);
 	}
 
 	/**
