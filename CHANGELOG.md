@@ -1,3 +1,50 @@
+## [Unreleased]
+
+### Added
+
+- **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. Provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list them without deleting.
+- **`dropperPressureThreshold` in configure overlay.** Already in config schema but missing from `/blackhole configure` TUI. Now editable alongside other OM thresholds.
+- **`fullFoldAlways` in TUI overlay.** Added to the configure overlay under Observational Memory section.
+- **Session goal from first user message.** Persisted at the top across compactions with `(#N)` entry indexing for traceability.
+- **OM info notifications gated to one per phase/turn.** Warnings and errors still fire immediately.
+- **Git commit extraction expanded.** Now handles `tool_call`, `bash`, and post-convert user-text formats.
+- **Cooldown skip messages strip raw JSON** from the reason for cleaner display, with a log pointer for debugging.
+- **`/blackhole` and `/blackhole-memory` subcommands now use `[bracketed]` syntax** (e.g. `[om-on]`, `[hybrid]`) with shortened descriptions for visual consistency.
+
+### Fixed
+
+- **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops use the observation boundary instead of being excluded.
+- **Recall-note bloat across multiple compactions.** `compile()` strips OM content first, then removes all recall-note paragraphs using paragraph-level matching (instead of only stripping a trailing exact match).
+- **OAuth/ADC-backed providers (Vertex, custom OAuth) now accepted by OM pipeline.** `resolveModel` uses `modelRegistry.hasConfiguredAuth()` instead of requiring a truthy `auth.apiKey`. Falls back to legacy behavior on older pi versions. ([#38](https://github.com/k0valik/pi-blackhole/issues/38))
+- **`ResolveResult.apiKey` is always a string.** Defaults to `""` instead of casting `undefined`.
+- **jiti provider bridge type-safe for pi 0.81.1+.** `pi.registerProvider` wrapper satisfies the overloaded signature in pi-coding-agent 0.81.1.
+- **Config overlay blocks save on invalid JSON.** Red error banner and Ctrl+S block prevent wiping model configs on corrupt files. ([#35](https://github.com/k0valik/pi-blackhole/issues/35))
+- **Config reloads after overlay save.** `Runtime.reloadConfig()` forces a fresh disk read after `/blackhole configure` saves. ([#36](https://github.com/k0valik/pi-blackhole/issues/36))
+- **Invalid JSON warning surfaced via TUI.** Yellow warning notification shown at every config load point instead of only `console.warn`.
+- **Defensive null guards for `b.args` and `ui.notify`.** Prevents crashes from stale extension context.
+- **`streamSimple` import updated to `pi-ai/compat`.** Removed from main export in pi 0.80.3.
+- **Legacy fallback config errors now passed to `onWarn` callback.** JSON parse errors in legacy fallback files (`pi-vcc-config.json`, `settings.json`, `.pi/settings.json`) are surfaced via the warning callback, not just `console.warn`.
+- **`saveUnifiedConfig` warns before overwriting corrupt config.** If the config file has invalid JSON, a warning is logged before overwriting.
+- **`dropperPressureThreshold` clamped to `[0.01, 1]` in overlay save.** Previously could silently lose value on reload.
+- **`deleteOrphanedBatch` reports partial failures.** "Delete all" now shows `Deleted X/Y (Y-X failed)` when individual unlinks fail.
+
+### Changed
+
+- **New config key:** `fullFoldAlways` (boolean, default `true`). Added to `UnifiedConfig` schema, defaults, and config file parsing.
+- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.81.1`** (agent-core, ai, coding-agent, tui).
+- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.80.3`** (agent-core, ai, coding-agent, tui), vitest to `4.1.9`, pinned vite/js-yaml overrides.
+- **Removed 6 unused exports from `om/cleanup.ts`** (`scanPendingFiles`, `findSessionDirs`, `collectAllSessionIds`, `crossReference`, `formatSize`, `formatAge`).
+
+### Tests
+
+- 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`.
+- 3 new tests for recall-note deduplication in `compile`.
+- 6 new tests for OAuth/ADC auth paths.
+- Tightened capping assertions in robust tests.
+- Added robust coverage for OM and CCC pipelines.
+
+---
+
 ## [0.3.9] - 2026-06-24
 
 ### Auto-compaction idle race fix (#31, #33)

@@ -40,6 +40,11 @@ const isSubstantiveGoal = (text: string): boolean => {
   return true;
 };
 
+const FIRST_MSG_CLIP = 80;
+
+const indexSuffix = (sourceIndex?: number): string =>
+  sourceIndex != null ? ` (#${sourceIndex})` : "";
+
 // Test scope-change / task intent only on the leading portion of a user block
 // so that pasted outputs below the actual instruction do not trigger matches.
 const LEADING_CHARS = 200;
@@ -47,6 +52,7 @@ const LEADING_CHARS = 200;
 export const extractGoals = (blocks: NormalizedBlock[]): string[] => {
   const goals: string[] = [];
   let latestScopeChange: string[] | null = null;
+  let latestScopeIndex: number | undefined;
 
   for (const b of blocks) {
     if (b.kind !== "user") continue;
@@ -58,21 +64,26 @@ export const extractGoals = (blocks: NormalizedBlock[]): string[] => {
     if (lines.length === 0) continue;
 
     if (goals.length === 0) {
-      goals.push(...lines.slice(0, 6));
+      goals.push(...lines.slice(0, 6).map((l) => clip(l, FIRST_MSG_CLIP) + indexSuffix(b.sourceIndex)));
       continue;
     }
 
     const leading = b.text.slice(0, LEADING_CHARS);
     if (SCOPE_CHANGE_RE.test(leading)) {
       latestScopeChange = lines.slice(0, 3).map((l) => clip(l, MAX_GOAL_CHARS));
+      latestScopeIndex = b.sourceIndex;
     } else if (TASK_RE.test(leading) && lines[0].length > 15) {
       latestScopeChange = lines.slice(0, 2).map((l) => clip(l, MAX_GOAL_CHARS));
+      latestScopeIndex = b.sourceIndex;
     }
   }
 
   // Only emit the [Scope change] marker when we actually captured bullets.
   if (latestScopeChange && latestScopeChange.length > 0) {
-    goals.push("[Scope change]", ...latestScopeChange);
+    goals.push("[Scope change]");
+    for (const line of latestScopeChange) {
+      goals.push(line + indexSuffix(latestScopeIndex));
+    }
   }
 
   return goals.slice(0, 8);

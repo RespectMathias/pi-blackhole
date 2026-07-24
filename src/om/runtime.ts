@@ -87,12 +87,45 @@ export class Runtime {
 	cursors: PipelineCursors = {};
 	/** Session ID for which cursors have been loaded/validated.  Undefined until first load. */
 	cursorsLoadedSessionId: string | undefined = undefined;
+	/** Info-notification gate: only the first info-level notification per turn/phase is emitted. */
+	hasEmittedInfoThisTurn = false;
 
-	ensureConfig(cwd: string): void {
+	/**
+	 * Emit an info-level notification if none has been emitted this turn/phase yet.
+	 * Returns true if emitted, false if suppressed (already emitted earlier).
+	 */
+	tryEmitInfo(hasUI: boolean, ui: { notify: Notify } | undefined, message: string): boolean {
+		if (!hasUI || !ui || typeof ui.notify !== "function") return false;
+		if (this.hasEmittedInfoThisTurn) return false;
+		this.hasEmittedInfoThisTurn = true;
+		try {
+			ui.notify(message, "info");
+		} catch {
+			// Stale extension context — harmless.
+		}
+		return true;
+	}
+
+	/** Reset the info gate — call at agent_start and agent_end to allow one
+	 *  notification per phase. */
+	resetInfoGate(): void {
+		this.hasEmittedInfoThisTurn = false;
+	}
+
+	ensureConfig(cwd: string, warn?: (message: string) => void): void {
 		if (this.configLoaded) return;
-		this.config = loadConfig(cwd);
+		this.config = loadConfig(cwd, warn);
 		this.configLoaded = true;
 		expireCooldowns();
+	}
+
+	/**
+	 * Force reload config from disk, discarding cached values.
+	 * Call this after external config changes (e.g., overlay save, manual edit).
+	 */
+	reloadConfig(cwd: string, warn?: (message: string) => void): void {
+		this.configLoaded = false;
+		this.ensureConfig(cwd, warn);
 	}
 
 	/**
@@ -139,24 +172,16 @@ export class Runtime {
 
 			// In-memory skip: model failed earlier in this stage with cooldownHours 0
 			if (this.failedInCycle.has(key)) {
-				if (ctx.hasUI && ctx.ui) {
-					ctx.ui.notify(
-						`Observational memory: ${stageName} skipping ${key} (failed this cycle, cooldown disabled)`,
-						"info",
-					);
-				}
+				this.tryEmitInfo(ctx.hasUI, ctx.ui,
+					`Observational memory: ${stageName} skipping ${key} (failed this cycle, cooldown disabled)`);
 				continue;
 			}
 
 			if (isCooldownActive(candidate)) {
-				if (ctx.hasUI && ctx.ui) {
-					const entry = getCooldownEntry(candidate);
-					const reason = entry ? `: ${entry.reason}` : "";
-					ctx.ui.notify(
-						`Observational memory: ${stageName} skipping ${key} (cooldown${reason})`,
-						"info",
-					);
-				}
+				const entry = getCooldownEntry(candidate);
+				const reason = entry ? `: ${entry.reason}` : "";
+				this.tryEmitInfo(ctx.hasUI, ctx.ui,
+					`Observational memory: ${stageName} skipping ${key} (cooldown${reason} — details in cooldown log)`);
 				continue;
 			}
 
@@ -172,7 +197,8 @@ export class Runtime {
 			}
 
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(configured);
-			if (!auth.ok || !auth.apiKey) {
+			const hasAuth = ctx.modelRegistry.hasConfiguredAuth?.(configured) ?? true;
+			if (!auth.ok || !hasAuth) {
 				if (ctx.hasUI && ctx.ui) {
 					ctx.ui.notify(
 						`Observational memory: ${stageName} no auth for ${candidate.provider}`,
@@ -185,7 +211,7 @@ export class Runtime {
 			return {
 				ok: true,
 				model: configured,
-				apiKey: auth.apiKey as string,
+				apiKey: (auth.apiKey as string) ?? "",
 				headers: auth.headers as Record<string, string> | undefined,
 				cooldownApplied: false,
 			};
@@ -199,29 +225,25 @@ export class Runtime {
 			}
 
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(sessionModel);
-			if (!auth.ok || !auth.apiKey) {
+			const hasAuth = ctx.modelRegistry.hasConfiguredAuth?.(sessionModel) ?? true;
+			if (!auth.ok || !hasAuth) {
 				const provider = (sessionModel as { provider?: string }).provider ?? "unknown";
-				return { ok: false, reason: `no API key for session model provider "${provider}"` };
+				return { ok: false, reason: `no auth for session model provider "${provider}"` };
 			}
 
 			return {
 				ok: true,
 				model: sessionModel,
-				apiKey: auth.apiKey as string,
+				apiKey: (auth.apiKey as string) ?? "",
 				headers: auth.headers as Record<string, string> | undefined,
 				cooldownApplied: false,
 			};
 		}
 
 		// All configured candidates exhausted and session fallback disabled —
-		// skip the stage entirely.  Info-level to match cooldown-disabled pattern.
-		// Set resolveFailureNotified so the consolidation layer doesn't duplicate.
-		if (ctx.hasUI && ctx.ui) {
-			ctx.ui.notify(
-				`Observational memory: ${stageName} skipped — all candidates failed (sessionFallback disabled, won't use main model)`,
-				"info",
-			);
-		}
+		// skip the stage entirely.
+		this.tryEmitInfo(ctx.hasUI, ctx.ui,
+			`Observational memory: ${stageName} skipped — all candidates failed (sessionFallback disabled, won't use main model)`);
 		this.resolveFailureNotified = true;
 
 		return { ok: false, reason: `no model available for ${stageName} (all candidates exhausted, sessionFallback disabled)` };
@@ -256,8 +278,13 @@ export class Runtime {
 			this.failedInCycle.add(modelKey(modelConfig));
 			return;
 		}
-		const reason = error instanceof Error ? error.message : String(error || "unknown error");
-		recordCooldown(modelConfig, reason, stage);
+		const rawReason = error instanceof Error ? error.message : String(error || "unknown error");
+		// Strip trailing JSON body from API error messages for display cleanliness.
+		// To avoid stripping non-JSON braces like "{host}", only strip if the text
+		// after the brace pair consists solely of whitespace (i.e. JSON is at end).
+		// The full rawReason is NOT stored in the cooldown log — only this brief form.
+		const brief = rawReason.replace(/\s*\{[\s\S]*?\}\s*$/, "").trim();
+		recordCooldown(modelConfig, brief, stage);
 	}
 
 	/**

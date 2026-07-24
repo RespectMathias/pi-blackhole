@@ -86,4 +86,95 @@ describe("compile", () => {
     const maxLineLength = Math.max(...r.split("\n").map((line) => line.length));
     expect(maxLineLength).toBeLessThanOrEqual(120);
   });
+
+  describe("compile — recall-note deduplication", () => {
+    it("strips a wrapped recall note from the previous summary", () => {
+      // Simulate a previous summary where wrapLongLines broke the recall note
+      // into multiple lines, so lastIndexOf(RECALL_NOTE) cannot find it.
+      const previousSummary = [
+        "[Session Goal]",
+        "- goal",
+        "",
+        "---",
+        "",
+        "[user]",
+        "hi",
+        "",
+        "The conversation before this point has been compacted into the summary above.",
+        "Details not captured here — exact code, error messages, file paths — are only",
+        "recoverable via `recall`. Use `recall` to search the session history. Do not",
+        "redo work already completed.",
+      ].join("\n");
+
+      const r = compile({
+        messages: [userMsg("next")],
+        previousSummary,
+      });
+
+      const occurrences = (r.match(/The conversation before this point has been compacted/g) || []).length;
+      expect(occurrences).toBe(1);
+    });
+
+    it("strips OM content and recall notes from previous summary in the correct order", () => {
+      // Realistic stored summary: VCC part (with wrapped recall note) followed
+      // by OM sections appended by the before-compact hook.
+      const previousSummary = [
+        "[Session Goal]",
+        "- goal",
+        "",
+        "---",
+        "",
+        "[user]",
+        "hi",
+        "",
+        "The conversation before this point has been compacted into the summary above.",
+        "Details not captured here — exact code, error messages, file paths — are only",
+        "recoverable via `recall`. Use `recall` to search the session history. Do not",
+        "redo work already completed.",
+        "",
+        "## Reflections",
+        "- Old reflection",
+        "",
+        "## Observations",
+        "- Old observation",
+      ].join("\n");
+
+      const r = compile({
+        messages: [userMsg("next")],
+        previousSummary,
+      });
+
+      // Stale OM content must not survive into the merged brief.
+      expect(r).not.toContain("Old reflection");
+      expect(r).not.toContain("Old observation");
+
+      // Exactly one recall note in the final output.
+      const occurrences = (r.match(/The conversation before this point has been compacted/g) || []).length;
+      expect(occurrences).toBe(1);
+    });
+
+    it("deduplicates recall notes across three compaction cycles", () => {
+      // Cycle 1: fresh compile → 1 recall note
+      const cycle1 = compile({
+        messages: [userMsg("first")],
+      });
+      expect((cycle1.match(/The conversation before this point has been compacted/g) || []).length).toBe(1);
+
+      // Cycle 2: merge cycle1 as previous summary.
+      // Without the fix, the wrapped recall note from cycle1 survives and
+      // a second one is appended → 2 total.
+      const cycle2 = compile({
+        messages: [userMsg("second")],
+        previousSummary: cycle1,
+      });
+      expect((cycle2.match(/The conversation before this point has been compacted/g) || []).length).toBe(1);
+
+      // Cycle 3: same pattern — must still be exactly 1.
+      const cycle3 = compile({
+        messages: [userMsg("third")],
+        previousSummary: cycle2,
+      });
+      expect((cycle3.match(/The conversation before this point has been compacted/g) || []).length).toBe(1);
+    });
+  });
 });

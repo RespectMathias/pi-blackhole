@@ -240,7 +240,7 @@ const REASON_MESSAGES: Record<OwnCutCancelReason, string> = {
 export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) => {
   pi.on("session_before_compact", (event, ctx) => {
     const { preparation, branchEntries, customInstructions } = event;
-    omRuntime.ensureConfig(ctx.cwd ?? process.cwd());
+    omRuntime.ensureConfig(ctx.cwd ?? process.cwd(), (msg) => ctx.ui?.notify?.(msg, "warning"));
     const trace = (ev: string, d?: Record<string, unknown>) => debugLog(ev, d, omRuntime.config.debugLog === true);
 
     trace("before_compact.enter", {
@@ -460,7 +460,10 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
       const projection = buildCompactionProjection(
       branchEntries as any[],
       firstKeptEntryId,
-      { observationsPoolMaxTokens: omRuntime.config.observationsPoolMaxTokens },
+      {
+        observationsPoolMaxTokens: omRuntime.config.observationsPoolMaxTokens,
+        fullFoldAlways: omRuntime.config.fullFoldAlways,
+      },
     );
       omContent = renderSummary(projection.reflections, projection.observations);
       omDetails = projection.details;

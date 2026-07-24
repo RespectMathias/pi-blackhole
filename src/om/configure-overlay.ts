@@ -9,7 +9,7 @@
 import { visibleWidth } from "./key-matcher.js";
 import { matchesKey, decodeKittyPrintable } from "@earendil-works/pi-tui";
 import { DEFAULTS } from "../core/unified-config.js";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -68,8 +68,12 @@ const FIELDS: FieldDef[] = [
 		helpText: "Max source entry tokens sent to observer per chunk" },
 	{ key: "observerPreambleMaxTokens", label: "Observer preamble max", type: "number", section: "Observational Memory",
 		helpText: "Preamble budget in manual compaction mode (0=auto-compute 30% of chunk)" },
+	{ key: "dropperPressureThreshold", label: "Dropper pressure threshold", type: "number", section: "Observational Memory",
+		helpText: "Fraction of reflectorInputMaxTokens that triggers pressure-driven dropper (0-1, default 0.70)" },
 	{ key: "agentMaxTurns", label: "Max turns per agent", type: "number", section: "Observational Memory",
 		helpText: "Shared turn cap for background memory agents" },
+	{ key: "fullFoldAlways", label: "Preserve OM on first compaction", type: "boolean", section: "Observational Memory",
+		helpText: "When true, early reflections/drops survive the first compaction in a fresh session" },
 
 	// ── Debug ──
 	{ key: "debug", label: "Debug snapshots", type: "boolean", section: "Debug",
@@ -111,6 +115,7 @@ const EMPTY_THEME: ThemeShim = {
 export interface OverlayResult {
 	saved: boolean;
 	path: string;
+	error?: string;
 }
 
 /**
@@ -136,9 +141,13 @@ export function createConfigureOverlay(
 
 	// Parse config file
 	let raw: Record<string, unknown>;
+	let fileError: string | undefined;
 	try {
 		raw = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-	} catch {
+	} catch (e) {
+		if (existsSync(configPath)) {
+			fileError = `Config file has invalid JSON: ${(e as Error).message}. Edit the file directly to fix it.`;
+		}
 		raw = {};
 	}
 
@@ -170,7 +179,16 @@ export function createConfigureOverlay(
 						break;
 					case "number": {
 						const num = Number(val);
-						updated[f.def.key] = (val && !isNaN(num)) ? num : raw[f.def.key];
+						if (val && !isNaN(num)) {
+							if (f.def.key === "dropperPressureThreshold") {
+								// Clamp to (0, 1] — runtime validates on reload
+								updated[f.def.key] = Math.min(1, Math.max(0.01, num));
+							} else {
+								updated[f.def.key] = num;
+							}
+						} else {
+							updated[f.def.key] = raw[f.def.key];
+						}
 						break;
 					}
 					case "enum":
@@ -238,8 +256,12 @@ export function createConfigureOverlay(
 
 		// Ctrl+S → save and close
 		if (matchesKey(data, "ctrl+s")) {
+			if (fileError) {
+				done({ saved: false, path: configPath, error: fileError });
+				return;
+			}
 			const saved = save();
-			done({ saved, path: configPath });
+			done({ saved, path: configPath, error: saved ? undefined : "Failed to write config file" });
 			return;
 		}
 
@@ -317,6 +339,16 @@ export function createConfigureOverlay(
 		lines.push(fg("border", `│ ${fg("accent", "Blackhole Configuration")}${" ".repeat(Math.max(0, innerW + 1 - 24))}│`));
 		lines.push(fg("border", `├${"─".repeat(w - 2)}┤`));
 
+		// Error banner when config file has invalid JSON
+		if (fileError) {
+			lines.push(fg("border", `│${" ".repeat(w - 2)}│`));
+			const errorPrefix = fg("error", " ERROR:");
+			const errorText = fg("error", fileError);
+			const errorLine = `│ ${errorPrefix} ${errorText}${" ".repeat(Math.max(0, innerW - visibleWidth(errorPrefix) - 1 - visibleWidth(errorText)))}│`;
+			lines.push(errorLine);
+			lines.push(fg("border", `│${" ".repeat(w - 2)}│`));
+		}
+
 		let currentSection = "";
 
 		for (let i = 0; i < fields.length; i++) {
@@ -375,7 +407,9 @@ export function createConfigureOverlay(
 
 		// Bottom hints
 		lines.push(fg("border", `│${" ".repeat(w - 2)}│`));
-		const hintText = " Ctrl+S save  \u2191\u2193 navigate  Enter toggle  Esc cancel ";
+		const hintText = fileError
+			? " Ctrl+S blocked  ↑↓ navigate  Esc cancel (fix JSON first) "
+			: " Ctrl+S save  \u2191\u2193 navigate  Enter toggle  Esc cancel ";
 		lines.push(fg("border", `│${fg("accent", hintText)}${" ".repeat(Math.max(1, innerW + 2 - visibleWidth(hintText)))}│`));
 		lines.push(fg("border", `╰${"─".repeat(w - 2)}╯`));
 

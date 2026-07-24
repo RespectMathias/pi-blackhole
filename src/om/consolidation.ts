@@ -360,10 +360,8 @@ export function makeModelResolver(runtime: Runtime, ctx: ConsolidationCtx): (sta
 				const fallbackMsg = stageFallbacks.length === 0
 					? "no fallbacks configured"
 					: "no available fallbacks";
-				ctx.ui.notify(
-					`Observational memory: ${stage} skipped — model unavailable (cooldown set to 0, ${fallbackMsg}, will retry next run)`,
-					"info",
-				);
+				runtime.tryEmitInfo(true, ctx.ui,
+					`Observational memory: ${stage} skipped — model unavailable (cooldown set to 0, ${fallbackMsg}, will retry next run)`);
 			} else {
 				ctx.ui.notify(`Observational memory: ${stage} skipped — ${resolved.reason}`, "warning");
 			}
@@ -421,7 +419,7 @@ function validateCursors(entries: Entry[], runtime: Runtime): void {
 }
 
 function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: ConsolidationCtx): void {
-	runtime.ensureConfig(ctx.cwd);
+	runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 	if (runtime.config.memory === false) return;
 
 	// LEGACY: passive check — only applies when new keys are absent (unmigrated config)
@@ -617,10 +615,8 @@ async function runObserverStage(
 				if (idx >= 0) effectiveTokens = rawTokensAfterIndex(entries, idx);
 			}
 		}
-		if (ctx.hasUI) ctx.ui?.notify(
-			`Observational memory: observer running on ~${chunkTokens.toLocaleString()}-token chunk (of ${effectiveTokens.toLocaleString()} accumulated)`,
-			"info",
-		);
+		runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+			`Observational memory: observer running on ~${chunkTokens.toLocaleString()}-token chunk (of ${effectiveTokens.toLocaleString()} accumulated)`);
 		debugLog("observer.start", { tokens, coversUpToId, sourceEntryIds, sourceEntryCount: sourceEntryIds.length, priorReflections: priorReflections.length, priorObservations: priorObservations.length });
 
 		// Resolve thinking level for the specific model (fallbacks may have their own thinking config)
@@ -633,7 +629,8 @@ async function runObserverStage(
 		if (observerEstimatedInput > effectiveObsCtx) {
 			debugLog("observer.context_window_exceeded", { estimatedInput: observerEstimatedInput, effectiveCtx: effectiveObsCtx, model: `${(resolved.model as any).provider}/${(resolved.model as any).id}` });
 			runtime.recordRetryableError(stageModelForThinking, new Error(`context window ${effectiveObsCtx} too small for estimated input ${observerEstimatedInput}`), "observer");
-			if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observational memory: observer skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveObsCtx.toLocaleString()} too small for ~${observerEstimatedInput.toLocaleString()}-token input)`, "info");
+			runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+				`Observational memory: observer skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveObsCtx.toLocaleString()} too small for ~${observerEstimatedInput.toLocaleString()}-token input)`);
 			continue;
 		}
 
@@ -662,7 +659,8 @@ async function runObserverStage(
 					debugLog("observer.appended", { count: result.observations.length, coversUpToId });
 				}
 				runtime.advanceCursor("observer", coversUpToId, "recorded");
-				if (ctx.hasUI) ctx.ui?.notify(`Observational memory: ${result.observations.length} observation${result.observations.length === 1 ? "" : "s"} recorded`, "info");
+				runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+					`Observational memory: ${result.observations.length} observation${result.observations.length === 1 ? "" : "s"} recorded`);
 				return "continue";
 			}
 
@@ -686,7 +684,12 @@ async function runObserverStage(
 				: "warning";
 			debugLog("observer.empty", { coversUpToId, reason: reason?.kind });
 			runtime.advanceCursor("observer", coversUpToId, "empty");
-			if (ctx.hasUI) ctx.ui?.notify(`Observational memory: no observations — ${reasonLabel}`, reasonLevel);
+			if (reasonLevel === "warning") {
+				if (ctx.hasUI) ctx.ui?.notify(`Observational memory: no observations — ${reasonLabel}`, "warning");
+			} else {
+				runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+					`Observational memory: no observations — ${reasonLabel}`);
+			}
 			return "continue";
 		} catch (error) {
 			// Always try next fallback — don't abort pipeline for a single model failure.
@@ -769,7 +772,8 @@ async function runReflectorStage(
 			}
 		}
 		debugLog("reflector.start", { tokens: effectiveReflectionTokens, inputTokens: reflectorInputTokens, newObsCount: newObservations.length, newRefCount: newReflections.length });
-		if (ctx.hasUI) ctx.ui?.notify(`Observational memory: reflector running (~${effectiveReflectionTokens.toLocaleString()} tokens accumulated, ~${reflectorInputTokens.toLocaleString()}-token input)`, "info");
+		runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+			`Observational memory: reflector running (~${effectiveReflectionTokens.toLocaleString()} tokens accumulated, ~${reflectorInputTokens.toLocaleString()}-token input)`);
 
 		// Resolve thinking level for the specific model (fallbacks may have their own thinking config)
 		const stageModelForThinking = runtime.findCandidateConfig(resolved.model, { model: ctx.model, modelRegistry: ctx.modelRegistry, hasUI: ctx.hasUI, ui: ctx.ui, stageModel: stageModelConfig(runtime, "reflector"), stageFallbacks: stageFallbackModels(runtime, "reflector") });
@@ -781,7 +785,8 @@ async function runReflectorStage(
 		if (reflectorEstimatedInput > effectiveRefCtx) {
 			debugLog("reflector.context_window_exceeded", { estimatedInput: reflectorEstimatedInput, effectiveCtx: effectiveRefCtx, model: `${(resolved.model as any).provider}/${(resolved.model as any).id}` });
 			runtime.recordRetryableError(stageModelForThinking, new Error(`context window ${effectiveRefCtx} too small for estimated input ${reflectorEstimatedInput}`), "reflector");
-			if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observational memory: reflector skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveRefCtx.toLocaleString()} too small for ~${reflectorEstimatedInput.toLocaleString()}-token input)`, "info");
+			runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+				`Observational memory: reflector skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveRefCtx.toLocaleString()} too small for ~${reflectorEstimatedInput.toLocaleString()}-token input)`);
 			continue;
 		}
 
@@ -917,7 +922,8 @@ async function runDropperStage(
 				if (idx >= 0) effectiveDropTokens = rawTokensAfterIndex(entries, idx);
 			}
 		}
-		if (ctx.hasUI) ctx.ui?.notify(`Observational memory: dropper running (~${effectiveDropTokens.toLocaleString()} tokens accumulated, ~${dropperInputTokens.toLocaleString()}-token input)`, "info");
+		runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+			`Observational memory: dropper running (~${effectiveDropTokens.toLocaleString()} tokens accumulated, ~${dropperInputTokens.toLocaleString()}-token input)`);
 
 		try {
 			// Existing active observations summary for context (capped).
@@ -948,7 +954,8 @@ async function runDropperStage(
 			if (dropperEstimatedInput > effectiveDropCtx) {
 				debugLog("dropper.context_window_exceeded", { estimatedInput: dropperEstimatedInput, effectiveCtx: effectiveDropCtx, model: `${(resolved.model as any).provider}/${(resolved.model as any).id}` });
 				runtime.recordRetryableError(stageModelForThinking, new Error(`context window ${effectiveDropCtx} too small for estimated input ${dropperEstimatedInput}`), "dropper");
-				if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observational memory: dropper skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveDropCtx.toLocaleString()} too small for ~${dropperEstimatedInput.toLocaleString()}-token input)`, "info");
+				runtime.tryEmitInfo(ctx.hasUI, ctx.ui,
+					`Observational memory: dropper skipping ${(resolved.model as any).provider}/${(resolved.model as any).id} (context window ${effectiveDropCtx.toLocaleString()} too small for ~${dropperEstimatedInput.toLocaleString()}-token input)`);
 				continue;
 			}
 

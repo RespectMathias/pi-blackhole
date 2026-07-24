@@ -34,12 +34,12 @@ export default (pi: ExtensionAPI) => {
 	const providerStreams: Map<string, Function> = (globalThis as any)[PROVIDER_STREAMS_KEY] ??= new Map();
 
 	const origRegisterProvider = pi.registerProvider.bind(pi);
-	pi.registerProvider = (name: string, config: any) => {
+	pi.registerProvider = ((name: string, config: any) => {
 		if (config && config.streamSimple && config.api) {
 			providerStreams.set(config.api, config.streamSimple);
 		}
 		origRegisterProvider(name, config);
-	};
+	}) as typeof pi.registerProvider;
 
 	// Fallback: on agent_start, capture providers that registered before our wrapper
 	// (handles the case where pi-blackhole loads after another provider extension).

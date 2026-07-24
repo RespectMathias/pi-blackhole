@@ -240,6 +240,10 @@ The agent gets a unified `recall` tool that handles three types of input:
 
 All settings in a single JSON file: **`~/.pi/agent/pi-blackhole/pi-blackhole-config.json`** — auto-created with defaults on first startup. See [`CONFIG.md`](CONFIG.md) for the full reference with detailed explanations for every knob. An annotated example config is at [`example-config.json`](example-config.json).
 
+**Invalid JSON protection:** If the config file has a syntax error (trailing comma, partial write, sync conflict), the overlay (`/blackhole configure`) shows a red error banner and blocks save to prevent wiping your model configs. A yellow warning is also shown in the TUI. Fix the JSON directly in the file, then reopen the overlay.
+
+**Overlay reload:** Changes saved via `/blackhole configure` take effect immediately — no session restart needed. The runtime reloads config from disk after every successful overlay save.
+
 Quick start — just set custom models (if you want):
 
 ```json
@@ -343,7 +347,7 @@ These are the built-in defaults. If you reset your config, these are what you ge
 
 ### Tip: comments in config
 
-The config preserves unknown keys, so you can add `_comment` or `_notes` fields to document your choices inline. They're ignored by the parser.
+The config preserves unknown keys when loaded, so you can add `_comment` or `_notes` fields to document your choices inline. They're ignored by the parser.
 
 ```json
 {
@@ -351,6 +355,8 @@ The config preserves unknown keys, so you can add `_comment` or `_notes` fields 
   "observerModel": { "provider": "openrouter", "id": "qwen/qwen3-next-80b-a3b-instruct:free", "thinking": "low" }
 }
 ```
+
+**Note:** The `/blackhole configure` overlay only manages the keys it knows about. All other keys (including `observerModel`, `reflectorModel`, `dropperModel`, and their fallback arrays) are preserved on save when the file has valid JSON. If the file has invalid JSON, save is blocked entirely — the overlay will not overwrite the file.
 
 ---
 

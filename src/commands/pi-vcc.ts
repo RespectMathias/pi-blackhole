@@ -17,6 +17,7 @@ import {
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_RECORDED,
 } from "../om/ledger/index.js";
+import { handleCleanup } from "./cleanup.js";
 
 const formatTokens = (n: number): string => {
 	if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -31,11 +32,12 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	pi.registerCommand("blackhole", {
 		description:
 			"Compact conversation — structured summary (with observational memory when enabled). " +
-			"Subcommands: /blackhole configure (open settings overlay), " +
-			"/blackhole om-off (disable memory), /blackhole om-on (re-enable memory).",
+			"Subcommands: [configure] settings overlay, [cleanup] remove orphaned files, " +
+			"[om-off] / [om-on] disable / re-enable memory.",
 		getArgumentCompletions: (prefix: string) => {
 			const subcommands = [
 				{ value: "configure", label: "Open configuration overlay to edit settings [configure]" },
+				{ value: "cleanup", label: "Find and remove orphaned pending files [cleanup]" },
 				{ value: "om-off", label: "Disable observational memory [om-off]" },
 				{ value: "om-on", label: "Enable observational memory [om-on]" },
 			];
@@ -49,17 +51,24 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 			const trimmed = (typeof args === "string" ? args : "").trim();
 			if (trimmed === "configure") {
 				// Open the config overlay
-				const result = await ctx.ui.custom<{ saved: boolean; path: string } | undefined>(
+				const result = await ctx.ui.custom<{ saved: boolean; path: string; error?: string } | undefined>(
 					(tui, theme, _kb, done) => createConfigureOverlay(configPath(), theme, tui, done),
 					{ overlay: true },
 				);
 				if (result) {
-					if (result.saved) {
+					if (result.error) {
+						ctx.ui.notify(result.error, "warning");
+					} else if (result.saved) {
+						runtime.reloadConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 						ctx.ui.notify("Configuration saved.", "info");
 					} else {
 						ctx.ui.notify("Failed to save configuration — the config file may be read-only (e.g., managed by Nix).", "warning");
 					}
 				}
+				return;
+			}
+			if (trimmed === "cleanup") {
+				await handleCleanup(ctx);
 				return;
 			}
 			if (trimmed === "om-off") {

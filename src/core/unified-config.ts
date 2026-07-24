@@ -76,6 +76,9 @@ export interface UnifiedConfig {
 	compactAfterTokens: number;
 	/** Observation pool token pressure for full fold. */
 	observationsPoolMaxTokens: number;
+	/** Treat every compaction as a full-fold boundary so early reflections/drops
+	 *  survive the first compaction in a fresh session. Default true. */
+	fullFoldAlways: boolean;
 	/** Target token budget for the observation pool (dropper aims here).
 	 *  Optional; defaults to half of observationsPoolMaxTokens when unset.
 	 *  Must be less than observationsPoolMaxTokens.
@@ -151,6 +154,7 @@ export const DEFAULTS: UnifiedConfig = {
 	reflectAfterTokens: 25_000,
 	compactAfterTokens: 81_000,
 	observationsPoolMaxTokens: 20_000,
+	fullFoldAlways: true,
 	observationsPoolTargetTokens: 10_000,
 	reflectorInputMaxTokens: 80_000,
 	dropperInputMaxTokens: 80_000,
@@ -240,6 +244,7 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
 	if (typeof raw.noAutoCompact === "boolean") c.noAutoCompact = raw.noAutoCompact;
 	if (typeof raw.passive === "boolean") c.passive = raw.passive;
 	if (typeof raw.memory === "boolean") c.memory = raw.memory;
+	if (typeof raw.fullFoldAlways === "boolean") c.fullFoldAlways = raw.fullFoldAlways;
 	if (typeof raw.debugLog === "boolean") c.debugLog = raw.debugLog;
 
 	// Numeric fields — use nonNegativeInt for observerPreambleMaxTokens (0 = auto)
@@ -319,35 +324,54 @@ function migrateOldKnobs(parsed: Record<string, unknown>): void {
 
 // ── Load and save ────────────────────────────────────────────────────────────
 
-function readJson(path: string): Record<string, unknown> | null {
-	if (!existsSync(path)) return null;
+function readJson(path: string): { data: Record<string, unknown> | null; error: string | null } {
+	if (!existsSync(path)) return { data: null, error: null };
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
-	} catch {
-		return null;
+		return { data: JSON.parse(readFileSync(path, "utf-8")), error: null };
+	} catch (e) {
+		const msg = `blackhole: config file at ${path} has invalid JSON: ${(e as Error).message}. Using defaults.`;
+		console.warn(msg);
+		return { data: null, error: msg };
 	}
 }
+
+/** Optional warning callback invoked when the primary config file has invalid JSON.
+ * Receives the warning message string. Used by callers with UI access to surface
+ * the error via ctx.ui.notify(message, "warning").
+ */
+type WarnFn = (message: string) => void;
 
 /**
  * Load unified configuration from ~/.pi/agent/pi-blackhole/pi-blackhole-config.json.
  * Falls back to legacy sources if the unified file doesn't exist.
  */
-export function loadUnifiedConfig(cwd: string): UnifiedConfig {
+export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
 	const path = configPath();
-	let raw = readJson(path);
+	let raw: Record<string, unknown> | null;
+	let primaryError: string | null = null;
+	const result = readJson(path);
+	raw = result.data;
+	primaryError = result.error;
+	if (primaryError && onWarn) onWarn(primaryError);
 
 	// Fallback to legacy sources if unified file doesn't exist
 	if (!raw) {
 		// Try legacy pi-vcc config
 		const piVccPath = join(getAgentDir(), "pi-vcc-config.json");
-		const piVccRaw = readJson(piVccPath);
+		const piVccResult = readJson(piVccPath);
+		const piVccRaw = piVccResult.data;
+		if (piVccResult.error && onWarn) onWarn(piVccResult.error);
 
 		// Try legacy om config from settings.json
 		const settingsPath = join(getAgentDir(), "settings.json");
-		const settingsRaw = readJson(settingsPath);
+		const settingsResult = readJson(settingsPath);
+		const settingsRaw = settingsResult.data;
+		if (settingsResult.error && onWarn) onWarn(settingsResult.error);
 		const omRaw = settingsRaw?.["pi-blackhole"] ?? settingsRaw?.["observational-memory"];
 		const projectSettingsPath = join(cwd, ".pi", "settings.json");
-		const projectRaw = readJson(projectSettingsPath);
+		const projectResult = readJson(projectSettingsPath);
+		const projectRaw = projectResult.data;
+		if (projectResult.error && onWarn) onWarn(projectResult.error);
 		const projectOmRaw = projectRaw?.["pi-blackhole"] ?? projectRaw?.["observational-memory"];
 
 		// Merge legacy sources
@@ -449,7 +473,11 @@ export function saveUnifiedConfig(settings: Partial<UnifiedConfig>): boolean {
 		const path = configPath();
 		const dir = dirname(path);
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-		const existing = readJson(path) ?? {};
+		const existingResult = readJson(path);
+		const existing = existingResult.data ?? {};
+		if (existingResult.error) {
+			console.warn("blackhole: overwriting corrupt config file at " + path);
+		}
 		const next = { ...existing, ...settings };
 		writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
 		return true;
