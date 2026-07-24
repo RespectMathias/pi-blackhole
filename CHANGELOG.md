@@ -2,6 +2,9 @@
 
 ### Added
 
+- **`/blackhole <text>` follow-up prompt.** After compaction, `/blackhole` optionally sends `<text>` as a follow-up message so the model continues the task without re-typing. Wrapped in `void Promise.resolve(...).catch(() => {})` for robust error handling.
+- **Subcommand near-miss detection.** `/blackhole configure foo` now shows a warning instead of silently becoming a follow-up prompt.
+
 - **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. The command scans the `pi-blackhole/` directory, cross-references session IDs against all session JSONL files, and provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list orphaned files as a notification without deleting.
 
 ### Command formatting cleanup
@@ -18,16 +21,24 @@
 ### Fixed
 
 - **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops now use the observation boundary instead of being excluded. Previously, fresh sessions silently lost all durable memory on the first compaction because there was no full-fold history to anchor the maintenance boundary.
+- **`capBrief` omission count now computed after `firstHeader` trim.** Previously the "N earlier lines omitted" header was computed before the section-header anchor trim, so the count was understated when headers caused additional trimming. This matched an upstream bug that was already fixed there.
+
 - **Recall-note bloat across multiple compactions.** `compile()` now strips OM content first, then removes all recall-note paragraphs from the previous summary using paragraph-level matching (instead of only stripping a trailing exact match). After 3+ compactions, the summary no longer accumulates 3+ embedded copies of the recall note.
 
 ### Tests
 
 - 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`: reflections survive first compaction when enabled, excluded when disabled, full-fold boundary still takes precedence, and post-boundary reflections remain excluded.
 - 3 new tests for recall-note deduplication in `compile`: wrapped recall note stripped, OM content stripped before recall note, and three-cycle accumulation produces exactly one recall note.
+- 5 new tests for follow-up prompt: extraction, subcommand exclusion, empty-args suppression, send after completion, compaction-failure suppression.
+- 6 new tests for CompactionStats population: all fields populated, compactAll flag, totalUserTurns count, keptUserTurns count, compactAll zero kept, and format string coverage.
+- 2 new tests for capBrief omission count: header-trimmed count is correct (99 for 200 lines with header at line 100), and no-header fallback still correct.
 
 ### Changed
 
 - **New config key:** `fullFoldAlways` (boolean, default `true`). Added to `UnifiedConfig` schema, defaults, and config file parsing.
+- **CompactionStats expanded from 3 to 11 fields.** Added `compactAll`, `totalUserTurns`, `keptUserTurns`, `requestedKeepUserTurns`, `keepUserTurnsExplicit`, `keepFallbackToCompactAll`, `smartKeepAdjusted`, `smartFromKeep`. All populated from `buildOwnCut` return data (Bug A fix).
+- **Shared `formatCompactionStats` exported.** Both the `/blackhole` command handler and hook's `session_compact` handler now use a single shared formatter, eliminating the duplicate inline toast strings and the private `formatTokens` helper.
+- **Dead ternary collapsed.** `effectiveTailBehavior` no longer has an `isPiVcc` branch with identical values on both sides (Bug B fix).
 
 ### Fixed
 
