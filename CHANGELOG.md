@@ -14,6 +14,16 @@
 
 - 6 new tests for OAuth/ADC auth paths: stage candidate with no static key, session model with no static key, candidate without configured auth falls through, session model without auth fails, `auth.ok: false` still rejected, legacy pi compatibility preserved.
 
+### Fixed
+
+- **Config overlay blocks save on invalid JSON.** When `pi-blackhole-config.json` has a parse error (trailing comma, partial write, sync conflict), the overlay now shows a red error banner and blocks Ctrl+S to prevent wiping model configs. Previously, invalid JSON was silently swallowed — the overlay rendered all defaults, and saving destroyed any keys it didn't recognize (e.g. `observerModel`, `reflectorModel`, `dropperModel`). ([#35](https://github.com/k0valik/pi-blackhole/issues/35))
+- **Config reloads after overlay save.** `Runtime.reloadConfig()` forces a fresh disk read after `/blackhole configure` saves. Previously, `ensureConfig()` cached the config on first load and never reloaded — overlay changes (including `memory: off`) didn't take effect until session restart. ([#36](https://github.com/k0valik/pi-blackhole/issues/36))
+- **Invalid JSON warning surfaced via TUI.** When the config file has invalid JSON, a yellow warning notification is now shown at every config load point (overlay open, `/blackhole-memory`, compaction trigger, before-compact hook). Previously only logged to console via `console.warn` — invisible to TUI-only users.
+
+### Added
+
+- **`dropperPressureThreshold` in configure overlay.** The field was already in the config schema and `example-config.json` but missing from the `/blackhole configure` TUI. Now editable alongside the other OM thresholds.
+
 ---
 
 ## [0.3.9] - 2026-06-24
