@@ -2,45 +2,46 @@
 
 ### Added
 
-- **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. The command scans the `pi-blackhole/` directory, cross-references session IDs against all session JSONL files, and provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list orphaned files as a notification without deleting.
+- **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. Provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list them without deleting.
+- **`dropperPressureThreshold` in configure overlay.** Already in config schema but missing from `/blackhole configure` TUI. Now editable alongside other OM thresholds.
+- **`fullFoldAlways` in TUI overlay.** Added to the configure overlay under Observational Memory section.
+- **Session goal from first user message.** Persisted at the top across compactions with `(#N)` entry indexing for traceability.
+- **OM info notifications gated to one per phase/turn.** Warnings and errors still fire immediately.
+- **Git commit extraction expanded.** Now handles `tool_call`, `bash`, and post-convert user-text formats.
+- **Cooldown skip messages strip raw JSON** from the reason for cleaner display, with a log pointer for debugging.
+- **`/blackhole` and `/blackhole-memory` subcommands now use `[bracketed]` syntax** (e.g. `[om-on]`, `[hybrid]`) with shortened descriptions for visual consistency.
 
 ### Fixed
 
-- **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops now use the observation boundary instead of being excluded. Previously, fresh sessions silently lost all durable memory on the first compaction because there was no full-fold history to anchor the maintenance boundary.
-- **Recall-note bloat across multiple compactions.** `compile()` now strips OM content first, then removes all recall-note paragraphs from the previous summary using paragraph-level matching (instead of only stripping a trailing exact match). After 3+ compactions, the summary no longer accumulates 3+ embedded copies of the recall note.
-
-### Tests
-
-- 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`: reflections survive first compaction when enabled, excluded when disabled, full-fold boundary still takes precedence, and post-boundary reflections remain excluded.
-- 3 new tests for recall-note deduplication in `compile`: wrapped recall note stripped, OM content stripped before recall note, and three-cycle accumulation produces exactly one recall note.
+- **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops use the observation boundary instead of being excluded.
+- **Recall-note bloat across multiple compactions.** `compile()` strips OM content first, then removes all recall-note paragraphs using paragraph-level matching (instead of only stripping a trailing exact match).
+- **OAuth/ADC-backed providers (Vertex, custom OAuth) now accepted by OM pipeline.** `resolveModel` uses `modelRegistry.hasConfiguredAuth()` instead of requiring a truthy `auth.apiKey`. Falls back to legacy behavior on older pi versions. ([#38](https://github.com/k0valik/pi-blackhole/issues/38))
+- **`ResolveResult.apiKey` is always a string.** Defaults to `""` instead of casting `undefined`.
+- **jiti provider bridge type-safe for pi 0.81.1+.** `pi.registerProvider` wrapper satisfies the overloaded signature in pi-coding-agent 0.81.1.
+- **Config overlay blocks save on invalid JSON.** Red error banner and Ctrl+S block prevent wiping model configs on corrupt files. ([#35](https://github.com/k0valik/pi-blackhole/issues/35))
+- **Config reloads after overlay save.** `Runtime.reloadConfig()` forces a fresh disk read after `/blackhole configure` saves. ([#36](https://github.com/k0valik/pi-blackhole/issues/36))
+- **Invalid JSON warning surfaced via TUI.** Yellow warning notification shown at every config load point instead of only `console.warn`.
+- **Defensive null guards for `b.args` and `ui.notify`.** Prevents crashes from stale extension context.
+- **`streamSimple` import updated to `pi-ai/compat`.** Removed from main export in pi 0.80.3.
+- **Legacy fallback config errors now passed to `onWarn` callback.** JSON parse errors in legacy fallback files (`pi-vcc-config.json`, `settings.json`, `.pi/settings.json`) are surfaced via the warning callback, not just `console.warn`.
+- **`saveUnifiedConfig` warns before overwriting corrupt config.** If the config file has invalid JSON, a warning is logged before overwriting.
+- **`dropperPressureThreshold` clamped to `[0.01, 1]` in overlay save.** Previously could silently lose value on reload.
+- **`deleteOrphanedBatch` reports partial failures.** "Delete all" now shows `Deleted X/Y (Y-X failed)` when individual unlinks fail.
 
 ### Changed
 
 - **New config key:** `fullFoldAlways` (boolean, default `true`). Added to `UnifiedConfig` schema, defaults, and config file parsing.
-
-### Fixed
-
-- **OAuth/ADC-backed providers (Vertex, custom OAuth) now accepted by OM pipeline.** `resolveModel` now uses `modelRegistry.hasConfiguredAuth()` instead of requiring a truthy `auth.apiKey`. Providers that authenticate via OAuth, Application Default Credentials, stored credentials, or env-based auth no longer fail with `"Observational memory: <stage> no auth for <provider>"`. Falls back to legacy behavior on older pi versions without `hasConfiguredAuth`. ([#38](https://github.com/k0valik/pi-blackhole/issues/38))
-- **`ResolveResult.apiKey` is always a string.** Defaults to `""` when no static API key is returned, satisfying the declared `string` type instead of casting `undefined`.
-- **jiti provider bridge type-safe for pi 0.81.1+.** `pi.registerProvider` wrapper in `index.ts` now satisfies the overloaded method signature introduced in pi-coding-agent 0.81.1.
-
-### Changed
-
-- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.81.1`** (agent-core, ai, coding-agent, tui). Selected `0.81.1` over latest `0.82.0` because it was published >48h ago at time of merge.
+- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.81.1`** (agent-core, ai, coding-agent, tui).
+- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.80.3`** (agent-core, ai, coding-agent, tui), vitest to `4.1.9`, pinned vite/js-yaml overrides.
+- **Removed 6 unused exports from `om/cleanup.ts`** (`scanPendingFiles`, `findSessionDirs`, `collectAllSessionIds`, `crossReference`, `formatSize`, `formatAge`).
 
 ### Tests
 
-- 6 new tests for OAuth/ADC auth paths: stage candidate with no static key, session model with no static key, candidate without configured auth falls through, session model without auth fails, `auth.ok: false` still rejected, legacy pi compatibility preserved.
-
-### Fixed
-
-- **Config overlay blocks save on invalid JSON.** When `pi-blackhole-config.json` has a parse error (trailing comma, partial write, sync conflict), the overlay now shows a red error banner and blocks Ctrl+S to prevent wiping model configs. Previously, invalid JSON was silently swallowed — the overlay rendered all defaults, and saving destroyed any keys it didn't recognize (e.g. `observerModel`, `reflectorModel`, `dropperModel`). ([#35](https://github.com/k0valik/pi-blackhole/issues/35))
-- **Config reloads after overlay save.** `Runtime.reloadConfig()` forces a fresh disk read after `/blackhole configure` saves. Previously, `ensureConfig()` cached the config on first load and never reloaded — overlay changes (including `memory: off`) didn't take effect until session restart. ([#36](https://github.com/k0valik/pi-blackhole/issues/36))
-- **Invalid JSON warning surfaced via TUI.** When the config file has invalid JSON, a yellow warning notification is now shown at every config load point (overlay open, `/blackhole-memory`, compaction trigger, before-compact hook). Previously only logged to console via `console.warn` — invisible to TUI-only users.
-
-### Added
-
-- **`dropperPressureThreshold` in configure overlay.** The field was already in the config schema and `example-config.json` but missing from the `/blackhole configure` TUI. Now editable alongside the other OM thresholds.
+- 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`.
+- 3 new tests for recall-note deduplication in `compile`.
+- 6 new tests for OAuth/ADC auth paths.
+- Tightened capping assertions in robust tests.
+- Added robust coverage for OM and CCC pipelines.
 
 ---
 
