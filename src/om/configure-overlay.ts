@@ -72,6 +72,8 @@ const FIELDS: FieldDef[] = [
 		helpText: "Fraction of reflectorInputMaxTokens that triggers pressure-driven dropper (0-1, default 0.70)" },
 	{ key: "agentMaxTurns", label: "Max turns per agent", type: "number", section: "Observational Memory",
 		helpText: "Shared turn cap for background memory agents" },
+	{ key: "fullFoldAlways", label: "Preserve OM on first compaction", type: "boolean", section: "Observational Memory",
+		helpText: "When true, early reflections/drops survive the first compaction in a fresh session" },
 
 	// ── Debug ──
 	{ key: "debug", label: "Debug snapshots", type: "boolean", section: "Debug",
