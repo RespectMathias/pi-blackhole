@@ -400,10 +400,22 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
       }, 0);
       return sum;
     }, 0);
+    const totalUserTurns = (branchEntries as any[]).filter((e: any) => e.type === "message" && e.message?.role === "user").length;
+    const keptUserTurns = ownCut.compactAll
+      ? 0
+      : (branchEntries as any[]).slice(keptIdx).filter((e: any) => e.type === "message" && e.message?.role === "user").length;
     omRuntime.compactionStats = {
       summarized: agentMessages.length,
       kept: keptEntries.length,
       keptTokensEst: Math.round(keptChars / 4),
+      compactAll: ownCut.compactAll,
+      totalUserTurns,
+      keptUserTurns,
+      requestedKeepUserTurns: 1,
+      keepUserTurnsExplicit: false,
+      keepFallbackToCompactAll: ownCut.compactAll,
+      smartKeepAdjusted: false,
+      smartFromKeep: 1,
     };
 
     const summary = compile({

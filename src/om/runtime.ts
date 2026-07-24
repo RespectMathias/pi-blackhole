@@ -80,7 +80,19 @@ export class Runtime {
 	/** Epoch ms of the last failed consolidation run (any stage). */
 	lastConsolidationErrorAt: number | undefined;
 	/** Stats from the most recent compaction run (session-scoped via handler closure). */
-	compactionStats: { summarized: number; kept: number; keptTokensEst: number } | null = null;
+	compactionStats: {
+		summarized: number;
+		kept: number;
+		keptTokensEst: number;
+		compactAll: boolean;
+		totalUserTurns: number;
+		keptUserTurns: number;
+		requestedKeepUserTurns: number;
+		keepUserTurnsExplicit: boolean;
+		keepFallbackToCompactAll: boolean;
+		smartKeepAdjusted: boolean;
+		smartFromKeep: number;
+	} | null = null;
 	/** Whether the most recent compaction was triggered by /blackhole (vs auto-compact). */
 	compactWasPiVcc = false;
 	/** In‑memory pipeline cursors — authoritative copy for gating decisions. */

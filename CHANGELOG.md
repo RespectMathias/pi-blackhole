@@ -4,6 +4,17 @@
 
 - **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. The command scans the `pi-blackhole/` directory, cross-references session IDs against all session JSONL files, and provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list orphaned files as a notification without deleting.
 
+### Command formatting cleanup
+
+- `/blackhole` and `/blackhole-memory` subcommands and modes now use `[bracketed]` syntax (e.g. `[om-on]`, `[hybrid]`) with shortened descriptions, making the command palette visually consistent and easier to scan.
+
+### Notification & session goal reorg
+
+- Session goal now derives from the first user message and is persisted at the top across compactions, with `(#N)` entry indexing for traceability.
+- OM info notifications are gated to one per phase/turn — warnings and errors still fire immediately.
+- Git commit extraction now handles tool_call, bash, and post-convert user-text formats.
+- Cooldown skip messages now strip raw JSON from the reason for cleaner display, with a log pointer for debugging.
+
 ### Fixed
 
 - **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops now use the observation boundary instead of being excluded. Previously, fresh sessions silently lost all durable memory on the first compaction because there was no full-fold history to anchor the maintenance boundary.

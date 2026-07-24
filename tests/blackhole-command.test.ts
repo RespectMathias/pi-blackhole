@@ -63,6 +63,7 @@ function createMockEnvironment() {
 				notify: vi.fn((msg: string, level: string) => {
 					notifyCalls.push({ msg, level });
 				}),
+				custom: vi.fn(),
 			},
 			...overrides,
 		};
@@ -208,5 +209,103 @@ describe("/blackhole command", () => {
 		expect(existsSync(pendingFile)).toBe(false); // cleared after flush
 		// Should call compact after flush
 		expect(ctx.compact).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ── Feature 1: Follow-up prompt after compaction ────────────────────────────
+
+describe("/blackhole follow-up prompt", () => {
+	beforeEach(() => {
+		mkdirSync(join(testRoot, "agent", "pi-blackhole"), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(testRoot, { recursive: true, force: true });
+	});
+
+	it("extracts follow-up text from /blackhole <args> and sends it after compaction", async () => {
+		const sendUserMessageCalls: Array<{ content: string }> = [];
+		const { pi, runtime, handlerMap, makeHandlerArgs } = createMockEnvironment();
+		(pi as any).sendUserMessage = vi.fn((content: string) => {
+			sendUserMessageCalls.push({ content });
+		});
+		registerPiVccCommand(pi as any, runtime as any);
+
+		const ctx = makeHandlerArgs();
+		await handlerMap.get("blackhole")!("fix the auth bug", ctx);
+
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+		const call = ctx.compact.mock.calls[0][0];
+		expect(call.customInstructions).toBe("__pi_vcc__");
+		// Simulate compaction completion — follow-up should fire
+		call.onComplete();
+		expect(sendUserMessageCalls).toHaveLength(1);
+		expect(sendUserMessageCalls[0].content).toBe("fix the auth bug");
+	});
+
+	it("does NOT extract subcommands as follow-up", async () => {
+		const { pi, runtime, handlerMap, makeHandlerArgs, notifyCalls } = createMockEnvironment();
+		registerPiVccCommand(pi as any, runtime as any);
+
+		const ctx = makeHandlerArgs();
+		await handlerMap.get("blackhole")!("configure", ctx);
+
+		// Should NOT compact — subcommand handled separately
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("no args → no follow-up prompt sent", async () => {
+		const sendUserMessageCalls: Array<{ content: string }> = [];
+		const { pi, runtime, handlerMap, makeHandlerArgs } = createMockEnvironment();
+		(pi as any).sendUserMessage = vi.fn((content: string) => {
+			sendUserMessageCalls.push({ content });
+		});
+		registerPiVccCommand(pi as any, runtime as any);
+
+		const ctx = makeHandlerArgs();
+		await handlerMap.get("blackhole")!("", ctx);
+
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+		const call = ctx.compact.mock.calls[0][0];
+		call.onComplete();
+		expect(sendUserMessageCalls).toHaveLength(0);
+	});
+
+	it("fires follow-up via sendUserMessage after compaction completes", async () => {
+		const sendUserMessageCalls: Array<{ content: string }> = [];
+		const { pi, runtime, handlerMap, makeHandlerArgs } = createMockEnvironment();
+		(pi as any).sendUserMessage = vi.fn((content: string) => {
+			sendUserMessageCalls.push({ content });
+		});
+		registerPiVccCommand(pi as any, runtime as any);
+
+		const ctx = makeHandlerArgs();
+		await handlerMap.get("blackhole")!("continue the refactor", ctx);
+
+		const call = ctx.compact.mock.calls[0][0];
+		// Simulate compaction completion
+		call.onComplete();
+
+		// The follow-up should be sent as a user message
+		expect(sendUserMessageCalls).toHaveLength(1);
+		expect(sendUserMessageCalls[0].content).toBe("continue the refactor");
+	});
+
+	it("does not fire follow-up when compaction fails", async () => {
+		const sendUserMessageCalls: Array<{ content: string }> = [];
+		const { pi, runtime, handlerMap, makeHandlerArgs } = createMockEnvironment();
+		(pi as any).sendUserMessage = vi.fn((content: string) => {
+			sendUserMessageCalls.push({ content });
+		});
+		registerPiVccCommand(pi as any, runtime as any);
+
+		const ctx = makeHandlerArgs();
+		await handlerMap.get("blackhole")!("continue", ctx);
+
+		const call = ctx.compact.mock.calls[0][0];
+		// Simulate compaction failure
+		call.onError(new Error("context overflow"));
+
+		expect(sendUserMessageCalls).toHaveLength(0);
 	});
 });

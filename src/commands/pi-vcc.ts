@@ -100,6 +100,10 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 				return;
 			}
 
+			// Extract follow-up prompt: everything after the subcommand check
+			// that isn't a known subcommand is treated as follow-up text.
+			const followUpPrompt = trimmed ? trimmed : null;
+
 			// If compaction is manual (or legacy noAutoCompact): flush pending OM entries
 			// into the branch before compacting so the summary includes accumulated memory.
 			if (runtime.config.compaction === "manual" && hasPendingData(sessionId)) {
@@ -145,6 +149,13 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 						ctx.ui.notify("Compacted with blackhole", "info");
 					}
 					notifyMigrationReminder(sessionId, (msg, level) => ctx.ui.notify(msg, level as any));
+
+					// Fire follow-up prompt after compaction completes
+					if (followUpPrompt) {
+						try {
+							pi.sendUserMessage(followUpPrompt);
+						} catch {}
+					}
 				},
 				onError: (err) => {
 					if (err.message === "Compaction cancelled" || err.message === "Already compacted") {
