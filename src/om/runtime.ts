@@ -279,9 +279,11 @@ export class Runtime {
 			return;
 		}
 		const rawReason = error instanceof Error ? error.message : String(error || "unknown error");
-		// Strip JSON body from API error messages for display cleanliness.
-		// Full details are in the cooldown log at ~/.pi/agent/pi-blackhole/pi-blackhole-cooldown.json
-		const brief = rawReason.replace(/\s*\{[\s\S]*\}\s*$/, "").trim();
+		// Strip trailing JSON body from API error messages for display cleanliness.
+		// To avoid stripping non-JSON braces like "{host}", only strip if the text
+		// after the brace pair consists solely of whitespace (i.e. JSON is at end).
+		// The full rawReason is NOT stored in the cooldown log — only this brief form.
+		const brief = rawReason.replace(/\s*\{[\s\S]*?\}\s*$/, "").trim();
 		recordCooldown(modelConfig, brief, stage);
 	}
 

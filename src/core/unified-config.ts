@@ -358,14 +358,20 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
 	if (!raw) {
 		// Try legacy pi-vcc config
 		const piVccPath = join(getAgentDir(), "pi-vcc-config.json");
-		const { data: piVccRaw } = readJson(piVccPath);
+		const piVccResult = readJson(piVccPath);
+		const piVccRaw = piVccResult.data;
+		if (piVccResult.error && onWarn) onWarn(piVccResult.error);
 
 		// Try legacy om config from settings.json
 		const settingsPath = join(getAgentDir(), "settings.json");
-		const { data: settingsRaw } = readJson(settingsPath);
+		const settingsResult = readJson(settingsPath);
+		const settingsRaw = settingsResult.data;
+		if (settingsResult.error && onWarn) onWarn(settingsResult.error);
 		const omRaw = settingsRaw?.["pi-blackhole"] ?? settingsRaw?.["observational-memory"];
 		const projectSettingsPath = join(cwd, ".pi", "settings.json");
-		const { data: projectRaw } = readJson(projectSettingsPath);
+		const projectResult = readJson(projectSettingsPath);
+		const projectRaw = projectResult.data;
+		if (projectResult.error && onWarn) onWarn(projectResult.error);
 		const projectOmRaw = projectRaw?.["pi-blackhole"] ?? projectRaw?.["observational-memory"];
 
 		// Merge legacy sources
@@ -467,7 +473,11 @@ export function saveUnifiedConfig(settings: Partial<UnifiedConfig>): boolean {
 		const path = configPath();
 		const dir = dirname(path);
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-		const existing = (readJson(path).data) ?? {};
+		const existingResult = readJson(path);
+		const existing = existingResult.data ?? {};
+		if (existingResult.error) {
+			console.warn("blackhole: overwriting corrupt config file at " + path);
+		}
 		const next = { ...existing, ...settings };
 		writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
 		return true;

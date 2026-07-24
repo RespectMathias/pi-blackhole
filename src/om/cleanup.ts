@@ -61,7 +61,7 @@ function extractSessionId(filename: string): string | null {
  * Scan the pi-blackhole directory for all *-pending.json and *-pending.stale.json
  * files. Returns file metadata sorted by mtime (newest first).
  */
-export function scanPendingFiles(agentDir: string = getAgentDir()): PendingFile[] {
+function scanPendingFiles(agentDir: string = getAgentDir()): PendingFile[] {
 	const dir = join(agentDir, PENDING_DIR);
 	if (!existsSync(dir)) return [];
 
@@ -181,7 +181,7 @@ function getDefaultSessionsDir(): string {
 	return join(getAgentDir(), "sessions");
 }
 
-export function findSessionDirs(): string[] {
+function findSessionDirs(): string[] {
 	const dirs: string[] = [];
 	const default_ = getDefaultSessionsDir();
 	dirs.push(default_);
@@ -198,7 +198,7 @@ export function findSessionDirs(): string[] {
  * Collect all session IDs from all known session directories.
  * Returns a Set of session UUIDs found in JSONL headers.
  */
-export function collectAllSessionIds(sessionDirs?: string[]): Set<string> {
+function collectAllSessionIds(sessionDirs?: string[]): Set<string> {
 	const dirs = sessionDirs ?? findSessionDirs();
 	const allIds = new Set<string>();
 	for (const dir of dirs) {
@@ -218,7 +218,7 @@ export function collectAllSessionIds(sessionDirs?: string[]): Set<string> {
  *
  * Returns the full report with all files classified.
  */
-export function crossReference(
+function crossReference(
 	pending: PendingFile[],
 	sessionIds: Set<string>,
 ): CleanupReport {
@@ -339,14 +339,14 @@ export function deleteOrphanedBatch(
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
 /** Human-readable file size. */
-export function formatSize(bytes: number): string {
+function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Human-readable age from epoch ms. */
-export function formatAge(mtimeMs: number, nowMs: number = Date.now()): string {
+function formatAge(mtimeMs: number, nowMs: number = Date.now()): string {
 	const diffMs = nowMs - mtimeMs;
 	const seconds = Math.floor(diffMs / 1000);
 	if (seconds < 60) return `${seconds}s ago`;

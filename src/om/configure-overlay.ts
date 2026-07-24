@@ -179,7 +179,16 @@ export function createConfigureOverlay(
 						break;
 					case "number": {
 						const num = Number(val);
-						updated[f.def.key] = (val && !isNaN(num)) ? num : raw[f.def.key];
+						if (val && !isNaN(num)) {
+							if (f.def.key === "dropperPressureThreshold") {
+								// Clamp to (0, 1] — runtime validates on reload
+								updated[f.def.key] = Math.min(1, Math.max(0.01, num));
+							} else {
+								updated[f.def.key] = num;
+							}
+						} else {
+							updated[f.def.key] = raw[f.def.key];
+						}
 						break;
 					}
 					case "enum":

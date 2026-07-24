@@ -288,11 +288,19 @@ export async function handleCleanup(ctx: ExtensionContext): Promise<void> {
 	);
 
 	if (result === "deleteAll") {
-		const count = deleteOrphanedBatch(items);
-		ctx.ui.notify(
-			`pi-blackhole: Deleted ${count} orphaned pending file${count === 1 ? "" : "s"}.`,
-			"info",
-		);
+		const deleted = deleteOrphanedBatch(items);
+		const intended = items.length;
+		if (deleted === intended) {
+			ctx.ui.notify(
+				`pi-blackhole: Deleted ${intended} orphaned pending file${intended === 1 ? "" : "s"}.`,
+				"info",
+			);
+		} else {
+			ctx.ui.notify(
+				`pi-blackhole: Deleted ${deleted}/${intended} orphaned pending file${intended === 1 ? "" : "s"} (${intended - deleted} failed).`,
+				"warning",
+			);
+		}
 	} else if (items.length > 0 && items.length < orphaned.length) {
 		// Some were deleted inline, some remain
 		const remainingSize = items.reduce((s, pf) => s + pf.sizeBytes, 0);
