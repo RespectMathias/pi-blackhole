@@ -158,38 +158,41 @@ export const compile = (input: CompileInput): string => {
   const blocks = filterNoise(normalize(input.messages));
   const data = buildSections({ blocks });
   const fresh = formatSummary(data);
-  // Strip any legacy RECALL_NOTE baked into prev summary (pre-fix format)
-  // so merge doesn't re-stack it inside the brief.
-  // Also strip OM content (## Reflections / ## Observations) from previous
-  // compactions — these are re-rendered fresh by the before-compact hook.
+
+  // Strip OM content first (## Reflections / ## Observations + preamble),
+  // then strip ALL recall notes from the previous summary using paragraph-level
+  // matching. Order matters: OM sections appear before the recall note in the
+  // stored summary, so we must remove them first to avoid leaving the recall
+  // stripper with fragments.
   let prev = input.previousSummary
-    ? stripRecallNote(input.previousSummary)
+    ? stripOMContent(input.previousSummary)
     : undefined;
-  prev = prev ? stripOMContent(prev) : undefined;
+  prev = prev ? stripRecallNotes(prev) : undefined;
   const merged = prev ? mergePrevious(prev, fresh) : fresh;
   if (!merged) return "";
-  return wrapLongLines(merged + SEPARATOR + RECALL_NOTE);
-};
-
-const stripRecallNote = (text: string): string => {
-  // Remove trailing RECALL_NOTE (and any separators surrounding it) if present.
-  // Handles both current format (---\n\nNOTE) and bare trailing NOTE.
-  const idx = text.lastIndexOf(RECALL_NOTE);
-  if (idx < 0) return text;
-  return text.slice(0, idx).replace(/\s*(?:\n\n---\n\n)?\s*$/, "").trimEnd();
+  // Defensive: remove any recall notes that survived the above (e.g. nested
+  // inside the brief transcript after a prior merge).
+  const cleaned = stripRecallNotes(merged);
+  return wrapLongLines(cleaned + SEPARATOR + RECALL_NOTE);
 };
 
 /**
- * Strip OM content and recall-guidance footers from a previous compaction summary.
+ * Strip ALL recall-note paragraphs from text using paragraph-level matching.
  *
- * OM content (## Reflections / ## Observations + instructions) is appended after
- * compile() by the before-compact hook, so it must be stripped from the previous
- * summary to prevent compounding across compactions. The fresh OM projection is
- * re-rendered each time.
+ * The recall note is identified by the sentence:
+ *   "The conversation before this point has been compacted"
  *
- * Also strips the basic recall-guidance footer that is always appended when OM
- * is off or has no entries.
+ * After wrapLongLines runs, the recall note may be split across multiple lines,
+ * so exact string matching against RECALL_NOTE fails. Instead, split the text
+ * into paragraphs (double-newline boundaries) and drop any paragraph that
+ * contains the identifying sentence.
  */
+const stripRecallNotes = (text: string): string => {
+  const paragraphs = text.split(/\n\n+/);
+  const kept = paragraphs.filter((p) => !p.includes("The conversation before this point has been compacted"));
+  return kept.join("\n\n");
+};
+
 const stripOMContent = (text: string): string => {
   // Remove everything from "## Reflections" or "## Observations" onward,
   // plus the instructions preamble that precedes them.

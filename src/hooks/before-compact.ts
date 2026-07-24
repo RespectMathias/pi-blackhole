@@ -460,7 +460,10 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
       const projection = buildCompactionProjection(
       branchEntries as any[],
       firstKeptEntryId,
-      { observationsPoolMaxTokens: omRuntime.config.observationsPoolMaxTokens },
+      {
+        observationsPoolMaxTokens: omRuntime.config.observationsPoolMaxTokens,
+        fullFoldAlways: omRuntime.config.fullFoldAlways,
+      },
     );
       omContent = renderSummary(projection.reflections, projection.observations);
       omDetails = projection.details;

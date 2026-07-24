@@ -244,3 +244,98 @@ describe("latestFullFoldBoundaryId", () => {
 		expect(result).toBeUndefined();
 	});
 });
+
+// ── fullFoldAlways ────────────────────────────────────────────────────────
+
+describe("buildCompactionProjection — fullFoldAlways", () => {
+	it("includes reflections when no full-fold exists and fullFoldAlways is true", async () => {
+		const { buildCompactionProjection } = await import("../src/om/ledger/projection.js");
+		const obs1 = makeObservation(hexId("obs-a"));
+		const ref1 = makeReflection(hexId("ref-a"));
+		// No prior full-fold compaction in the entries.
+		const entries: Entry[] = [
+			src("kept-entry"),
+			recordEntry("e1", [obs1], "kept-entry"),
+			reflectEntry("e2", [ref1], "kept-entry"),
+		];
+		const result = buildCompactionProjection(entries, "kept-entry", {
+			observationsPoolMaxTokens: 20_000,
+			fullFoldAlways: true,
+		});
+		// Observations are always included via the observation boundary.
+		expect(result.observations).toHaveLength(1);
+		// With fullFoldAlways, reflections should also survive using the
+		// observation boundary as the maintenance boundary.
+		expect(result.reflections).toHaveLength(1);
+		expect(result.reflections[0].id).toBe(ref1.id);
+	});
+
+	it("excludes reflections when no full-fold exists and fullFoldAlways is false", async () => {
+		const { buildCompactionProjection } = await import("../src/om/ledger/projection.js");
+		const obs1 = makeObservation(hexId("obs-a"));
+		const ref1 = makeReflection(hexId("ref-a"));
+		const entries: Entry[] = [
+			src("kept-entry"),
+			recordEntry("e1", [obs1], "kept-entry"),
+			reflectEntry("e2", [ref1], "kept-entry"),
+		];
+		const result = buildCompactionProjection(entries, "kept-entry", {
+			observationsPoolMaxTokens: 20_000,
+			fullFoldAlways: false,
+		});
+		expect(result.observations).toHaveLength(1);
+		// Old behavior: none boundary excludes all reflections.
+		expect(result.reflections).toHaveLength(0);
+	});
+
+	it("still uses full-fold boundary when one exists, regardless of fullFoldAlways", async () => {
+		const { buildCompactionProjection } = await import("../src/om/ledger/projection.js");
+		const obs1 = makeObservation(hexId("obs-a"));
+		const ref1 = makeReflection(hexId("ref-a"));
+		const entries: Entry[] = [
+			src("full-fold-entry"),
+			compactionEntry("c1", "full-fold-entry", {
+				type: "om.folded",
+				version: 1,
+				fullFold: true,
+				observations: [],
+				reflections: [],
+			}),
+			src("kept-entry"),
+			recordEntry("e2", [obs1], "kept-entry"),
+			// coversUpToId is at the full-fold boundary, so this reflection
+			// should be included when the full-fold boundary is used.
+			reflectEntry("e3", [ref1], "full-fold-entry"),
+		];
+		const result = buildCompactionProjection(entries, "kept-entry", {
+			observationsPoolMaxTokens: 20_000,
+			fullFoldAlways: true,
+		});
+		expect(result.reflections).toHaveLength(1);
+		expect(result.reflections[0].id).toBe(ref1.id);
+	});
+
+	it("excludes reflections after the full-fold boundary even with fullFoldAlways", async () => {
+		const { buildCompactionProjection } = await import("../src/om/ledger/projection.js");
+		const ref1 = makeReflection(hexId("ref-after"));
+		const entries: Entry[] = [
+			src("full-fold-entry"),
+			compactionEntry("c1", "full-fold-entry", {
+				type: "om.folded",
+				version: 1,
+				fullFold: true,
+				observations: [],
+				reflections: [],
+			}),
+			src("kept-entry"),
+			// This reflection coversUpToId is AFTER the full-fold boundary,
+			// so it must NOT be included.
+			reflectEntry("e3", [ref1], "kept-entry"),
+		];
+		const result = buildCompactionProjection(entries, "kept-entry", {
+			observationsPoolMaxTokens: 20_000,
+			fullFoldAlways: true,
+		});
+		expect(result.reflections).toHaveLength(0);
+	});
+});

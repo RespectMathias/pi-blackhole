@@ -2,6 +2,20 @@
 
 ### Fixed
 
+- **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops now use the observation boundary instead of being excluded. Previously, fresh sessions silently lost all durable memory on the first compaction because there was no full-fold history to anchor the maintenance boundary.
+- **Recall-note bloat across multiple compactions.** `compile()` now strips OM content first, then removes all recall-note paragraphs from the previous summary using paragraph-level matching (instead of only stripping a trailing exact match). After 3+ compactions, the summary no longer accumulates 3+ embedded copies of the recall note.
+
+### Tests
+
+- 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`: reflections survive first compaction when enabled, excluded when disabled, full-fold boundary still takes precedence, and post-boundary reflections remain excluded.
+- 3 new tests for recall-note deduplication in `compile`: wrapped recall note stripped, OM content stripped before recall note, and three-cycle accumulation produces exactly one recall note.
+
+### Changed
+
+- **New config key:** `fullFoldAlways` (boolean, default `true`). Added to `UnifiedConfig` schema, defaults, and config file parsing.
+
+### Fixed
+
 - **OAuth/ADC-backed providers (Vertex, custom OAuth) now accepted by OM pipeline.** `resolveModel` now uses `modelRegistry.hasConfiguredAuth()` instead of requiring a truthy `auth.apiKey`. Providers that authenticate via OAuth, Application Default Credentials, stored credentials, or env-based auth no longer fail with `"Observational memory: <stage> no auth for <provider>"`. Falls back to legacy behavior on older pi versions without `hasConfiguredAuth`. ([#38](https://github.com/k0valik/pi-blackhole/issues/38))
 - **`ResolveResult.apiKey` is always a string.** Defaults to `""` when no static API key is returned, satisfying the declared `string` type instead of casting `undefined`.
 - **jiti provider bridge type-safe for pi 0.81.1+.** `pi.registerProvider` wrapper in `index.ts` now satisfies the overloaded method signature introduced in pi-coding-agent 0.81.1.

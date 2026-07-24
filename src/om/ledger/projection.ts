@@ -30,6 +30,7 @@ export type ProjectionDiff = {
 
 export type CompactionProjectionConfig = {
 	observationsPoolMaxTokens: number;
+	fullFoldAlways?: boolean;
 };
 
 export type CompactionProjection = Projection & {
@@ -197,7 +198,11 @@ export function buildCompactionProjection(
 	config: CompactionProjectionConfig,
 ): CompactionProjection {
 	const fullFoldBoundaryId = latestFullFoldBoundaryId(entries);
-	const maintenanceBoundary = fullFoldBoundaryId ? entryBoundary(fullFoldBoundaryId) : noneBoundary();
+	const maintenanceBoundary = fullFoldBoundaryId
+		? entryBoundary(fullFoldBoundaryId)
+		: config.fullFoldAlways
+			? entryBoundary(firstKeptEntryId)
+			: noneBoundary();
 	const normalProjection = foldProjection(entries, {
 		observationsBoundary: entryBoundary(firstKeptEntryId),
 		reflectionsBoundary: maintenanceBoundary,
