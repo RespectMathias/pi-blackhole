@@ -197,7 +197,8 @@ export class Runtime {
 			}
 
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(configured);
-			if (!auth.ok || !auth.apiKey) {
+			const hasAuth = ctx.modelRegistry.hasConfiguredAuth?.(configured) ?? true;
+			if (!auth.ok || !hasAuth) {
 				if (ctx.hasUI && ctx.ui) {
 					ctx.ui.notify(
 						`Observational memory: ${stageName} no auth for ${candidate.provider}`,
@@ -210,7 +211,7 @@ export class Runtime {
 			return {
 				ok: true,
 				model: configured,
-				apiKey: auth.apiKey as string,
+				apiKey: (auth.apiKey as string) ?? "",
 				headers: auth.headers as Record<string, string> | undefined,
 				cooldownApplied: false,
 			};
@@ -224,15 +225,16 @@ export class Runtime {
 			}
 
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(sessionModel);
-			if (!auth.ok || !auth.apiKey) {
+			const hasAuth = ctx.modelRegistry.hasConfiguredAuth?.(sessionModel) ?? true;
+			if (!auth.ok || !hasAuth) {
 				const provider = (sessionModel as { provider?: string }).provider ?? "unknown";
-				return { ok: false, reason: `no API key for session model provider "${provider}"` };
+				return { ok: false, reason: `no auth for session model provider "${provider}"` };
 			}
 
 			return {
 				ok: true,
 				model: sessionModel,
-				apiKey: auth.apiKey as string,
+				apiKey: (auth.apiKey as string) ?? "",
 				headers: auth.headers as Record<string, string> | undefined,
 				cooldownApplied: false,
 			};

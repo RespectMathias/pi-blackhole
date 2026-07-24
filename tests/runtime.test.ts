@@ -653,6 +653,195 @@ describe("Runtime — model not found in registry (falls to next)", () => {
 	});
 });
 
+describe("Runtime.resolveModel — OAuth/ADC auth", () => {
+	it("accepts stage candidate with hasConfiguredAuth=true and no static apiKey", async () => {
+		writeConfig({
+			observerModel: { provider: "vertex", id: "vertex-model" },
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		const registry = {
+			models: [makeModel("vertex-model", "vertex", { api: "google-vertex" })],
+			find: vi.fn((p: string, id: string) => makeModel(id, p, { api: "google-vertex" })),
+			hasConfiguredAuth: vi.fn(() => true),
+			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: undefined, headers: undefined })),
+		};
+
+		const result = await runtime.resolveModel({
+			model: undefined,
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "vertex", id: "vertex-model" },
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.model.id).toBe("vertex-model");
+		}
+		expect(result.apiKey).toBe(""); // type-safe default when no static key
+	});
+
+	it("accepts session model with hasConfiguredAuth=true and no static apiKey", async () => {
+		writeConfig({
+			observerModel: { provider: "openrouter", id: "primary:free" },
+			sessionFallback: true,
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		// Cool down the primary so we fall through to session model
+		const { recordCooldown } = await import("../src/om/cooldown.js");
+		recordCooldown({ provider: "openrouter", id: "primary:free" }, "429", "observer");
+
+		const registry = {
+			models: [makeModel("primary:free", "openrouter")],
+			find: vi.fn((p: string, id: string) => makeModel(id, p)),
+			hasConfiguredAuth: vi.fn(() => true),
+			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: undefined, headers: undefined })),
+		};
+
+		const result = await runtime.resolveModel({
+			model: makeModel("session-model", "vertex", { api: "google-vertex" }),
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "openrouter", id: "primary:free" },
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.model.id).toBe("session-model");
+		}
+		expect(result.apiKey).toBe("");
+	});
+
+	it("falls through candidate with no configured auth to next candidate", async () => {
+		writeConfig({
+			observerModel: { provider: "vertex", id: "vertex-no-auth" },
+			observerFallbackModels: [{ provider: "openrouter", id: "openrouter-ok" }],
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		const registry = {
+			models: [
+				makeModel("vertex-no-auth", "vertex", { api: "google-vertex" }),
+				makeModel("openrouter-ok", "openrouter"),
+			],
+			find: vi.fn((p: string, id: string) => {
+				const m = makeModel(id, p);
+				if (p === "vertex") m.api = "google-vertex";
+				return m;
+			}),
+			hasConfiguredAuth: vi.fn((m: any) => m.provider === "openrouter"),
+			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: "sk-test", headers: undefined })),
+		};
+
+		const result = await runtime.resolveModel({
+			model: undefined,
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "vertex", id: "vertex-no-auth" },
+			stageFallbacks: [{ provider: "openrouter", id: "openrouter-ok" }],
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.model.id).toBe("openrouter-ok");
+		}
+	});
+
+	it("fails session model when it has no configured auth", async () => {
+		writeConfig({
+			observerModel: { provider: "openrouter", id: "primary:free" },
+			sessionFallback: true,
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		// Cool down the primary so we fall through to session model
+		const { recordCooldown } = await import("../src/om/cooldown.js");
+		recordCooldown({ provider: "openrouter", id: "primary:free" }, "429", "observer");
+
+		const registry = {
+			models: [makeModel("primary:free", "openrouter")],
+			find: vi.fn((p: string, id: string) => makeModel(id, p)),
+			hasConfiguredAuth: vi.fn(() => false),
+			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: undefined, headers: undefined })),
+		};
+
+		const result = await runtime.resolveModel({
+			model: makeModel("session-model", "vertex", { api: "google-vertex" }),
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "openrouter", id: "primary:free" },
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.reason).toContain("no auth");
+	});
+
+	it("rejects candidate when getApiKeyAndHeaders returns ok:false even if hasConfiguredAuth is true", async () => {
+		writeConfig({
+			observerModel: { provider: "openrouter", id: "primary:free" },
+			sessionFallback: true,
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		const registry = makeRegistry([
+			makeModel("primary:free", "openrouter"),
+		]);
+		// Override: auth call fails — hasConfiguredAuth doesn't bypass ok:false
+		registry.getApiKeyAndHeaders = vi.fn(async () => ({ ok: false, error: "network error" }));
+		registry.hasConfiguredAuth = vi.fn(() => true);
+
+		const result = await runtime.resolveModel({
+			model: makeModel("session-model", "openrouter"),
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "openrouter", id: "primary:free" },
+		});
+
+		// Candidate rejected (auth.ok:false), then session model also rejected (auth.ok:false)
+		expect(result.ok).toBe(false);
+		expect(result.reason).toContain("no auth");
+	});
+
+	it("uses legacy behavior when registry has no hasConfiguredAuth (older pi versions)", async () => {
+		writeConfig({
+			observerModel: { provider: "openrouter", id: "primary:free" },
+		});
+		const { Runtime } = await import("../src/om/runtime.js");
+		const runtime = new Runtime();
+		runtime.ensureConfig(testDir);
+
+		// Registry without hasConfiguredAuth (pre-0.80.x pi)
+		const registry = makeRegistry([
+			makeModel("primary:free", "openrouter"),
+		]);
+		registry.hasConfiguredAuth = undefined;
+		registry.getApiKeyAndHeaders = vi.fn(async () => ({ ok: true, apiKey: "sk-legacy", headers: undefined }));
+
+		const result = await runtime.resolveModel({
+			model: undefined,
+			modelRegistry: registry,
+			hasUI: false,
+			stageModel: { provider: "openrouter", id: "primary:free" },
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.apiKey).toBe("sk-legacy");
+		}
+	});
+});
+
 describe("Runtime pipeline cursors", () => {
 	it("starts with no cursors", async () => {
 		const { Runtime } = await import("../src/om/runtime.js");
