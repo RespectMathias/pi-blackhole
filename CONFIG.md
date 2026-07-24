@@ -2,6 +2,18 @@
 
 Pi-blackhole's configuration lives at `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`. This document describes the new unified config keys introduced by the config simplification.
 
+## Config file safety
+
+The config file must contain **valid JSON**. A trailing comma, partial write, or sync-conflict copy will cause the entire file to be rejected — and previously, the overlay would silently fall back to defaults and then overwrite your model configs on save.
+
+**Current behavior:**
+- Invalid JSON is logged as a warning and surfaced as a yellow notification in the TUI
+- The `/blackhole configure` overlay shows a red error banner and **blocks Ctrl+S** until the file is fixed
+- The overlay preserves unknown keys (e.g. `observerModel`, `reflectorModel`) on valid files — only keys in the overlay's field list are managed there
+- Changes made via the overlay take effect **immediately** — no session restart needed (the runtime reloads config from disk after save)
+
+**If your config gets corrupted:** fix the JSON syntax directly in the file, then reopen the overlay.
+
 ## Quick Reference
 
 ```jsonc

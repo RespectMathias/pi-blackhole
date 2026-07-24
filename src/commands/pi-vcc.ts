@@ -51,12 +51,15 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 			const trimmed = (typeof args === "string" ? args : "").trim();
 			if (trimmed === "configure") {
 				// Open the config overlay
-				const result = await ctx.ui.custom<{ saved: boolean; path: string } | undefined>(
+				const result = await ctx.ui.custom<{ saved: boolean; path: string; error?: string } | undefined>(
 					(tui, theme, _kb, done) => createConfigureOverlay(configPath(), theme, tui, done),
 					{ overlay: true },
 				);
 				if (result) {
-					if (result.saved) {
+					if (result.error) {
+						ctx.ui.notify(result.error, "warning");
+					} else if (result.saved) {
+						runtime.reloadConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 						ctx.ui.notify("Configuration saved.", "info");
 					} else {
 						ctx.ui.notify("Failed to save configuration — the config file may be read-only (e.g., managed by Nix).", "warning");

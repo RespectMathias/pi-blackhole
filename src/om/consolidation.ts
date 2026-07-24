@@ -419,7 +419,7 @@ function validateCursors(entries: Entry[], runtime: Runtime): void {
 }
 
 function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: ConsolidationCtx): void {
-	runtime.ensureConfig(ctx.cwd);
+	runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 	if (runtime.config.memory === false) return;
 
 	// LEGACY: passive check — only applies when new keys are absent (unmigrated config)

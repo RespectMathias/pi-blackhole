@@ -319,35 +319,48 @@ function migrateOldKnobs(parsed: Record<string, unknown>): void {
 
 // ── Load and save ────────────────────────────────────────────────────────────
 
-function readJson(path: string): Record<string, unknown> | null {
-	if (!existsSync(path)) return null;
+function readJson(path: string): { data: Record<string, unknown> | null; error: string | null } {
+	if (!existsSync(path)) return { data: null, error: null };
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
-	} catch {
-		return null;
+		return { data: JSON.parse(readFileSync(path, "utf-8")), error: null };
+	} catch (e) {
+		const msg = `blackhole: config file at ${path} has invalid JSON: ${(e as Error).message}. Using defaults.`;
+		console.warn(msg);
+		return { data: null, error: msg };
 	}
 }
+
+/** Optional warning callback invoked when the primary config file has invalid JSON.
+ * Receives the warning message string. Used by callers with UI access to surface
+ * the error via ctx.ui.notify(message, "warning").
+ */
+type WarnFn = (message: string) => void;
 
 /**
  * Load unified configuration from ~/.pi/agent/pi-blackhole/pi-blackhole-config.json.
  * Falls back to legacy sources if the unified file doesn't exist.
  */
-export function loadUnifiedConfig(cwd: string): UnifiedConfig {
+export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
 	const path = configPath();
-	let raw = readJson(path);
+	let raw: Record<string, unknown> | null;
+	let primaryError: string | null = null;
+	const result = readJson(path);
+	raw = result.data;
+	primaryError = result.error;
+	if (primaryError && onWarn) onWarn(primaryError);
 
 	// Fallback to legacy sources if unified file doesn't exist
 	if (!raw) {
 		// Try legacy pi-vcc config
 		const piVccPath = join(getAgentDir(), "pi-vcc-config.json");
-		const piVccRaw = readJson(piVccPath);
+		const { data: piVccRaw } = readJson(piVccPath);
 
 		// Try legacy om config from settings.json
 		const settingsPath = join(getAgentDir(), "settings.json");
-		const settingsRaw = readJson(settingsPath);
+		const { data: settingsRaw } = readJson(settingsPath);
 		const omRaw = settingsRaw?.["pi-blackhole"] ?? settingsRaw?.["observational-memory"];
 		const projectSettingsPath = join(cwd, ".pi", "settings.json");
-		const projectRaw = readJson(projectSettingsPath);
+		const { data: projectRaw } = readJson(projectSettingsPath);
 		const projectOmRaw = projectRaw?.["pi-blackhole"] ?? projectRaw?.["observational-memory"];
 
 		// Merge legacy sources
@@ -449,7 +462,7 @@ export function saveUnifiedConfig(settings: Partial<UnifiedConfig>): boolean {
 		const path = configPath();
 		const dir = dirname(path);
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-		const existing = readJson(path) ?? {};
+		const existing = (readJson(path).data) ?? {};
 		const next = { ...existing, ...settings };
 		writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
 		return true;

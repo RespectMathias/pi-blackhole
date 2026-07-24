@@ -112,11 +112,20 @@ export class Runtime {
 		this.hasEmittedInfoThisTurn = false;
 	}
 
-	ensureConfig(cwd: string): void {
+	ensureConfig(cwd: string, warn?: (message: string) => void): void {
 		if (this.configLoaded) return;
-		this.config = loadConfig(cwd);
+		this.config = loadConfig(cwd, warn);
 		this.configLoaded = true;
 		expireCooldowns();
+	}
+
+	/**
+	 * Force reload config from disk, discarding cached values.
+	 * Call this after external config changes (e.g., overlay save, manual edit).
+	 */
+	reloadConfig(cwd: string, warn?: (message: string) => void): void {
+		this.configLoaded = false;
+		this.ensureConfig(cwd, warn);
 	}
 
 	/**

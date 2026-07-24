@@ -52,7 +52,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 }
 
 function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
-	runtime.ensureConfig(ctx.cwd);
+	runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 	// Reset the info gate — allow one notification during agent_end.
 	runtime.resetInfoGate();
 
