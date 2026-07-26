@@ -7,6 +7,7 @@
   "compaction": "auto",
   "compactionEngine": "blackhole",
   "tailBehavior": "minimal",
+  "midRunCompaction": "resume",
 
   "model": {
     "_comment": "Base model (last fallback before session model).",
@@ -110,6 +111,7 @@
     "  compaction (auto|manual|off) — how compaction triggers",
     "  compactionEngine (blackhole|pi-default) — who handles it",
     "  tailBehavior (pi-default|minimal) — how much stays visible",
+    "  midRunCompaction (resume|pause|off) — threshold check during tool loops",
     "  sessionFallback (true|false) — if false, skip session model as last-resort fallback",
     "  dropperPressureThreshold (0-1, default 0.70) — pressure relief valve: fraction of reflectorInputMaxTokens where dropper fires even without new data",
     "",

@@ -15,7 +15,7 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ConfiguredModel } from "./config.js";
 import { debugLog, withDebugLogContext } from "./debug-log.js";
 import { type ResolveResult, type Runtime } from "./runtime.js";
-import { isRetryableError } from "./retryable-error.js";
+import { isRetryableError, isStaleExtensionContextError } from "./retryable-error.js";
 import { effectiveContextWindow } from "./model-budget.js";
 import { serializeSourceAddressedBranchEntries } from "./serialize.js";
 
@@ -430,12 +430,24 @@ function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: Conso
 	if (runtime.isConsolidationRetryGated()) return;
 
 	// Load and validate cursors from pending file (once per session; re-load on fork)
-	const sessionId = ctx.sessionManager.getSessionId();
+	let sessionId: string;
+	try {
+		sessionId = ctx.sessionManager.getSessionId();
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) return;
+		throw error;
+	}
 	if (runtime.cursorsLoadedSessionId !== sessionId) {
 		if (typeof runtime.loadCursorsFromPending === "function") {
 			runtime.loadCursorsFromPending(sessionId);
 		}
-		const entries = ctx.sessionManager.getBranch() as Entry[];
+		let entries: Entry[];
+		try {
+			entries = ctx.sessionManager.getBranch() as Entry[];
+		} catch (error) {
+			if (isStaleExtensionContextError(error)) return;
+			throw error;
+		}
 		validateCursors(entries, runtime);
 		runtime.cursorsLoadedSessionId = sessionId;
 		const c = runtime.cursors ?? {};
@@ -446,7 +458,13 @@ function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: Conso
 		});
 	}
 
-	const entries = ctx.sessionManager.getBranch() as Entry[];
+	let entries: Entry[];
+	try {
+		entries = ctx.sessionManager.getBranch() as Entry[];
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) return;
+		throw error;
+	}
 	// In manual mode, the branch has no OM markers — pending state provides
 	// pool fullness and new‑data visibility for reflector/dropper checks.
 	const pending = runtime.config.noAutoCompact ? readPendingState(sessionId) : undefined;
@@ -509,7 +527,16 @@ export async function runConsolidationPipeline(
 	}
 
 	// Flush cursors to pending file after all stages complete (non‑blocking)
-	const sessionId = ctx.sessionManager.getSessionId();
+	let sessionId: string;
+	try {
+		sessionId = ctx.sessionManager.getSessionId();
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) {
+			debugLog("pipeline.stale_ctx", { error: String(error) });
+			return;
+		}
+		throw error;
+	}
 	runtime.scheduleCursorFlush(sessionId);
 	const c = runtime.cursors ?? {};
 	debugLog("cursor.saved", {
@@ -527,8 +554,18 @@ async function runObserverStage(
 	ctx: ConsolidationCtx,
 	resolveModel: (stage: "observer") => Promise<ResolvedModel | undefined>,
 ): Promise<StageOutcome> {
-	const entries = ctx.sessionManager.getBranch() as Entry[];
-	const sessionId = ctx.sessionManager.getSessionId();
+	let entries: Entry[];
+	let sessionId: string;
+	try {
+		entries = ctx.sessionManager.getBranch() as Entry[];
+		sessionId = ctx.sessionManager.getSessionId();
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) {
+			debugLog("observer.stale_ctx", { error: String(error) });
+			return "abort";
+		}
+		throw error;
+	}
 
 	// Determine start index: cursor takes priority, fall back to coverage markers
 	const observerCursor = runtime.getCursor("observer");
@@ -692,6 +729,10 @@ async function runObserverStage(
 			}
 			return "continue";
 		} catch (error) {
+			if (isStaleExtensionContextError(error)) {
+				debugLog("observer.stale_ctx", { error: String(error) });
+				return "abort";
+			}
 			// Always try next fallback — don't abort pipeline for a single model failure.
 			// Record cooldown so resolveModel skips this model in the next iteration.
 			const candidateConfig = runtime.findCandidateConfig(resolved.model, { model: ctx.model, modelRegistry: ctx.modelRegistry, hasUI: ctx.hasUI, ui: ctx.ui, stageModel: stageModelConfig(runtime, "observer"), stageFallbacks: stageFallbackModels(runtime, "observer") });
@@ -715,8 +756,18 @@ async function runReflectorStage(
 	ctx: ConsolidationCtx,
 	resolveModel: (stage: "reflector") => Promise<ResolvedModel | undefined>,
 ): Promise<ReflectorStageResult> {
-	const sessionId = ctx.sessionManager.getSessionId();
-	const entries = ctx.sessionManager.getBranch() as Entry[];
+	let entries: Entry[];
+	let sessionId: string;
+	try {
+		entries = ctx.sessionManager.getBranch() as Entry[];
+		sessionId = ctx.sessionManager.getSessionId();
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) {
+			debugLog("reflector.stale_ctx", { error: String(error) });
+			return { outcome: "abort", sameRunReflections: [] };
+		}
+		throw error;
+	}
 	let reflectionTokens = 0;
 	let observationCoverageId: string | undefined;
 	if (runtime.config.noAutoCompact) {
@@ -847,6 +898,10 @@ async function runReflectorStage(
 				effectiveReflectionCoverageId: data.coversUpToId,
 			};
 		} catch (error) {
+			if (isStaleExtensionContextError(error)) {
+				debugLog("reflector.stale_ctx", { error: String(error) });
+				return { outcome: "abort", sameRunReflections: [] };
+			}
 			const candidateConfig = runtime.findCandidateConfig(resolved.model, { model: ctx.model, modelRegistry: ctx.modelRegistry, hasUI: ctx.hasUI, ui: ctx.ui, stageModel: stageModelConfig(runtime, "reflector"), stageFallbacks: stageFallbackModels(runtime, "reflector") });
 			runtime.recordRetryableError(candidateConfig, error, "reflector");
 			debugLog("reflector.error", { error: String(error), retryable: isRetryableError(error) });
@@ -868,8 +923,18 @@ async function runDropperStage(
 	sameRunReflections: Reflection[],
 	sameRunReflectionCoverageId: string | undefined,
 ): Promise<StageOutcome> {
-	const sessionId = ctx.sessionManager.getSessionId();
-	const entries = ctx.sessionManager.getBranch() as Entry[];
+	let entries: Entry[];
+	let sessionId: string;
+	try {
+		entries = ctx.sessionManager.getBranch() as Entry[];
+		sessionId = ctx.sessionManager.getSessionId();
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) {
+			debugLog("dropper.stale_ctx", { error: String(error) });
+			return "abort";
+		}
+		throw error;
+	}
 	let dropTokens = 0;
 	let observationCoverageId: string | undefined;
 	if (runtime.config.noAutoCompact) {
@@ -989,6 +1054,10 @@ async function runDropperStage(
 			}
 			return "continue";
 		} catch (error) {
+			if (isStaleExtensionContextError(error)) {
+				debugLog("dropper.stale_ctx", { error: String(error) });
+				return "abort";
+			}
 			const candidateConfig = runtime.findCandidateConfig(resolved.model, { model: ctx.model, modelRegistry: ctx.modelRegistry, hasUI: ctx.hasUI, ui: ctx.ui, stageModel: stageModelConfig(runtime, "dropper"), stageFallbacks: stageFallbackModels(runtime, "dropper") });
 			runtime.recordRetryableError(candidateConfig, error, "dropper");
 			debugLog("dropper.error", { error: String(error), retryable: isRetryableError(error) });

@@ -46,14 +46,19 @@ function captureHandler(args: {
 	compaction?: "auto" | "manual" | "off";
 	/** NEW: Which engine handles compaction */
 	compactionEngine?: "blackhole" | "pi-default";
+	/** NEW: Mid-run (turn_end) compaction behavior */
+	midRunCompaction?: "resume" | "pause" | "off";
 } = {}) {
 	let agentEndHandler: ((event: unknown, ctx: unknown) => void) | undefined;
 	let agentStartHandler: (() => void) | undefined;
+	let turnEndHandler: ((event: unknown, ctx: unknown) => void) | undefined;
 	const pi = {
 		on: vi.fn((name: string, cb: any) => {
 			if (name === "agent_end") agentEndHandler = cb;
 			if (name === "agent_start") agentStartHandler = cb;
+			if (name === "turn_end") turnEndHandler = cb;
 		}),
+		sendMessage: vi.fn(),
 	};
 	const runtime = {
 		ensureConfig: vi.fn(),
@@ -73,6 +78,8 @@ function captureHandler(args: {
 			compaction: args.compaction,
 			/** NEW: Which engine handles compaction */
 			compactionEngine: args.compactionEngine,
+			/** NEW: Mid-run (turn_end) compaction behavior */
+			midRunCompaction: args.midRunCompaction,
 		},
 		compactInFlight: args.compactInFlight ?? false,
 		autoCompactionController: null as AbortController | null,
@@ -80,7 +87,16 @@ function captureHandler(args: {
 	registerCompactionTrigger(pi as any, runtime as any);
 	if (!agentEndHandler) throw new Error("agent_end handler was not registered");
 	if (!agentStartHandler) throw new Error("agent_start handler was not registered");
-	return { handler: agentEndHandler, startHandler: agentStartHandler, runtime };
+	if (!turnEndHandler) throw new Error("turn_end handler was not registered");
+	return { handler: agentEndHandler, startHandler: agentStartHandler, turnHandler: turnEndHandler, runtime, pi };
+}
+
+function turnEnd() {
+	return {
+		type: "turn_end",
+		message: { role: "assistant", content: "working...", stopReason: "toolUse" },
+		toolResults: [],
+	};
 }
 
 function agentEnd(errorMessage?: string) {
@@ -448,5 +464,229 @@ describe("V3 compaction trigger (blackhole)", () => {
 		expect(runtime.compactInFlight).toBe(false);
 		expect(ctx.sessionManager.getBranch).not.toHaveBeenCalled();
 		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+});
+
+describe("mid-run compaction trigger (turn_end)", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("M1: does nothing below compactAfterTokens", () => {
+		const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([belowBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M2: compacts immediately at threshold — no idle wait, agent is mid-run by definition", () => {
+		const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		// Synchronous: no flushAll/timer advance — ctx.compact must already be called.
+		expect(runtime.compactInFlight).toBe(true);
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+		expect(ctx.isIdle).not.toHaveBeenCalled();
+	});
+
+	it("M3: default mode is resume — onComplete injects a resume message with triggerTurn", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		const options = ctx.compact.mock.calls[0][0];
+		options.onComplete({});
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const [message, sendOptions] = pi.sendMessage.mock.calls[0];
+		expect(message.customType).toBe("blackhole-resume");
+		expect(typeof message.content).toBe("string");
+		expect(message.content.length).toBeGreaterThan(0);
+		expect(sendOptions).toMatchObject({ triggerTurn: true });
+	});
+
+	it("M4: pause mode compacts but does not inject a resume message", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "pause" });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+		const options = ctx.compact.mock.calls[0][0];
+		options.onComplete({});
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("M5: off mode never compacts mid-run (agent_end path still works)", async () => {
+		const { turnHandler, handler, runtime } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "off" });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		expect(ctx.compact).not.toHaveBeenCalled();
+		expect(runtime.compactInFlight).toBe(false);
+
+		handler(agentEnd(), ctx);
+		await flushAll();
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+	});
+
+	it("M6: onError clears compactInFlight, suspends further attempts, and still resumes (resume mode)", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		const options = ctx.compact.mock.calls[0][0];
+		options.onError({ message: "boom" });
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(runtime.midRunCompactionSuspended).toBe(true);
+		// The run was already aborted by ctx.compact() — resume mode must still
+		// send the resume message or the agent stalls mid-task.
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("M7: skips when compaction is already in flight", () => {
+		const { turnHandler } = captureHandler({ compactAfterTokens: 3, compactInFlight: true });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(ctx.sessionManager.getBranch).not.toHaveBeenCalled();
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M8: respects compaction:off guard", () => {
+		const { turnHandler, runtime } = captureHandler({ compaction: "off", compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M9: respects compaction:manual guard", () => {
+		const { turnHandler, runtime } = captureHandler({ compaction: "manual", compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M10: respects compactionEngine:pi-default guard", () => {
+		const { turnHandler, runtime } = captureHandler({ compaction: "auto", compactionEngine: "pi-default", compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M11: LEGACY-BACKWARD: overrideDefaultCompaction:false with no new keys — no mid-run trigger", () => {
+		const { turnHandler, runtime } = captureHandler({ overrideDefaultCompaction: false, compaction: undefined, compactionEngine: undefined, compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M12: LEGACY-BACKWARD: noAutoCompact:true with no new keys — no mid-run trigger", () => {
+		const { turnHandler, runtime } = captureHandler({ noAutoCompact: true, compaction: undefined, compactionEngine: undefined, compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("M13: ignores stale extension ctx at turn_end", () => {
+		const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		const staleCtx = {
+			get cwd() {
+				throw { message: "This extension ctx is stale after session replacement or reload." };
+			},
+		};
+
+		expect(() => turnHandler(turnEnd(), staleCtx)).not.toThrow();
+		expect(runtime.compactInFlight).toBe(false);
+	});
+
+	it("M14: threshold reset — a fresh compaction entry zeroes accumulated tokens, no re-trigger loop", () => {
+		const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		// Branch after a mid-run compaction: compaction entry + small tail.
+		const postCompactionBranch = [
+			compactionEntry("comp-1", { summary: "summary", firstKeptEntryId: "raw-9" }),
+			textCustomMessage("raw-10", "aaaa"), // 1 token
+		];
+		const ctx = fakeCtx([postCompactionBranch]);
+
+		turnHandler(turnEnd(), ctx);
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+});
+
+describe("mid-run compaction cancellation resilience", () => {
+	it("M15: cancelled compaction still resumes the agent and suspends further mid-run attempts", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch, dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		const options = ctx.compact.mock.calls[0][0];
+		// The before-compact hook cancelled (e.g. too few live messages).
+		// The run was already aborted by ctx.compact() — without a resume
+		// message the agent would stall mid-task.
+		options.onError({ message: "Compaction cancelled" });
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		// Next turn_end must NOT re-trigger (tokens unchanged, compaction would
+		// cancel again — abort/cancel thrash loop).
+		turnHandler(turnEnd(), ctx);
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+	});
+
+	it("M16: suspension clears once pressure drops below threshold (successful compaction elsewhere)", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
+		// Sequence: due (trigger+cancel) → due (suspended) → below (clears) → due (triggers again)
+		const ctx = fakeCtx([dueBranch, dueBranch, belowBranch, dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		ctx.compact.mock.calls[0][0].onError({ message: "Compaction cancelled" });
+		turnHandler(turnEnd(), ctx); // suspended — no new compact
+		expect(ctx.compact).toHaveBeenCalledTimes(1);
+
+		turnHandler(turnEnd(), ctx); // below threshold — clears suspension
+		turnHandler(turnEnd(), ctx); // due again — triggers
+		expect(ctx.compact).toHaveBeenCalledTimes(2);
+	});
+
+	it("M17: pause mode does not resume on cancellation", () => {
+		const { turnHandler, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "pause" });
+		const ctx = fakeCtx([dueBranch]);
+
+		turnHandler(turnEnd(), ctx);
+		ctx.compact.mock.calls[0][0].onError({ message: "Compaction cancelled" });
+
+		expect(pi.sendMessage).not.toHaveBeenCalled();
 	});
 });

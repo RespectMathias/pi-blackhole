@@ -48,6 +48,37 @@ const formatTokens = (n: number): string => {
   return String(n);
 };
 
+export interface CompactionStats {
+  summarized: number;
+  kept: number;
+  keptTokensEst: number;
+  compactAll: boolean;
+  totalUserTurns: number;
+  keptUserTurns: number;
+  requestedKeepUserTurns: number;
+  keepUserTurnsExplicit: boolean;
+  keepFallbackToCompactAll: boolean;
+  smartKeepAdjusted: boolean;
+  smartFromKeep: number;
+}
+
+/**
+ * Format compaction stats for user-visible notification.
+ * Example output:
+ *   blackhole: 6 source entries processed; tail kept 1/4 user turns (~0.5k tok).
+ */
+export const formatCompactionStats = (stats: CompactionStats): string => {
+  const parts: string[] = [`${stats.summarized} source entries processed`];
+  parts.push(`tail kept ${stats.keptUserTurns}/${stats.totalUserTurns} user turns`);
+  if (stats.smartKeepAdjusted) {
+    parts.push(`smart keep:${stats.smartFromKeep}→${stats.keptUserTurns}`);
+  }
+  if (stats.keepFallbackToCompactAll) {
+    parts.push(`compact-all`);
+  }
+  return `blackhole: ${parts.join("; ")} (~${formatTokens(stats.keptTokensEst)} tok).`;
+};
+
 const dbg = (debug: boolean, data: Record<string, unknown>) => {
   if (!debug) return;
   try { writeFileSync("/tmp/pi-blackhole-debug.json", JSON.stringify(data, null, 2)); } catch {}
@@ -291,9 +322,7 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
     // Determine effective tail behavior for buildOwnCut
     // Both /blackhole and auto-triggered default to "minimal" (aggressive cut);
     // users can opt into "pi-default" (gentler) by setting tailBehavior in config.
-    const effectiveTailBehavior = isPiVcc
-      ? (omRuntime.config.tailBehavior ?? "minimal")
-      : (omRuntime.config.tailBehavior ?? "minimal");
+    const effectiveTailBehavior = omRuntime.config.tailBehavior ?? "minimal";
 
     trace("before_compact.tail_behavior", {
       effectiveTailBehavior,
@@ -400,10 +429,22 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
       }, 0);
       return sum;
     }, 0);
+    const totalUserTurns = (branchEntries as any[]).filter((e: any) => e.type === "message" && e.message?.role === "user").length;
+    const keptUserTurns = ownCut.compactAll
+      ? 0
+      : (branchEntries as any[]).slice(keptIdx).filter((e: any) => e.type === "message" && e.message?.role === "user").length;
     omRuntime.compactionStats = {
       summarized: agentMessages.length,
       kept: keptEntries.length,
       keptTokensEst: Math.round(keptChars / 4),
+      compactAll: ownCut.compactAll,
+      totalUserTurns,
+      keptUserTurns,
+      requestedKeepUserTurns: 1,
+      keepUserTurnsExplicit: false,
+      keepFallbackToCompactAll: ownCut.compactAll,
+      smartKeepAdjusted: false,
+      smartFromKeep: 1,
     };
 
     const summary = compile({
@@ -491,10 +532,7 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
     const sessionId = ctx.sessionManager.getSessionId();
     setTimeout(() => {
       try {
-        ctx?.ui?.notify?.(
-          `blackhole: ${stats.summarized} source entries processed; tail kept ${stats.kept} (~${formatTokens(stats.keptTokensEst)} tok).`,
-          "info",
-        );
+        ctx?.ui?.notify?.(formatCompactionStats(stats), "info");
         notifyMigrationReminder(sessionId, (msg, level) => ctx?.ui?.notify?.(msg, level as any));
       } catch {}
     }, 500);

@@ -10,6 +10,7 @@
  * - markConsolidationError sets 30s retry gate for failed runs.
  */
 import { type Config, type ConfiguredModel, DEFAULTS, loadConfig } from "./config.js";
+import type { CompactionStats } from "../hooks/before-compact.js";
 import { isCooldownActive, getCooldownEntry, recordCooldown, expireCooldowns, modelKey } from "./cooldown.js";
 import { readPendingCursors, writePendingCursors } from "./pending.js";
 import type { PendingOMState } from "./pending.js";
@@ -73,6 +74,10 @@ export class Runtime {
 	 * Set when handleAgentEnd schedules a wait; cleared on abort, success, or terminal bail.
 	 * agent_start handlers read this to abort the pending wait when a new turn starts. */
 	autoCompactionController: AbortController | null = null;
+	/** Mid-run (turn_end) compaction is suspended after a failed/cancelled attempt
+	 * at the current pressure level. Cleared when accumulated tokens drop below
+	 * the threshold again (i.e. a compaction ran). Prevents abort/cancel thrash. */
+	midRunCompactionSuspended = false;
 	resolveFailureNotified = false;
 	lastObserverError: string | undefined;
 	lastReflectorError: string | undefined;
@@ -80,7 +85,7 @@ export class Runtime {
 	/** Epoch ms of the last failed consolidation run (any stage). */
 	lastConsolidationErrorAt: number | undefined;
 	/** Stats from the most recent compaction run (session-scoped via handler closure). */
-	compactionStats: { summarized: number; kept: number; keptTokensEst: number } | null = null;
+	compactionStats: CompactionStats | null = null;
 	/** Whether the most recent compaction was triggered by /blackhole (vs auto-compact). */
 	compactWasPiVcc = false;
 	/** In‑memory pipeline cursors — authoritative copy for gating decisions. */
@@ -369,7 +374,13 @@ export class Runtime {
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;
 		if (phase === "dropper") this.lastDropperError = message;
-		if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+		if (ctx.hasUI && ctx.ui) {
+			try {
+				ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+			} catch {
+				// Stale extension context — harmless.
+			}
+		}
 		this.markConsolidationError();
 		return message;
 	}
@@ -388,7 +399,13 @@ export class Runtime {
 				await work();
 			} catch (error) {
 				errorMessage = error instanceof Error ? error.message : String(error);
-				if (hasUI && ui) ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");
+				if (hasUI && ui) {
+					try {
+						ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");
+					} catch {
+						// Stale extension context — harmless.
+					}
+				}
 			} finally {
 				onFinally(errorMessage);
 			}

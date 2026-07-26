@@ -44,6 +44,8 @@ const FIELDS: FieldDef[] = [
 		helpText: "blackhole=structured summary+OM, pi-default=built-in Pi summarization" },
 	{ key: "tailBehavior", label: "Visible tail", type: "enum", section: "Compaction", enumValues: ["minimal", "pi-default"],
 		helpText: "minimal=keep last user message only (default), pi-default=keep Pi's preserved visible context" },
+	{ key: "midRunCompaction", label: "Mid-run compaction", type: "enum", section: "Compaction", enumValues: ["resume", "pause", "off"],
+		helpText: "resume=compact at threshold during tool loops and continue (default), pause=compact and stop, off=only check when run ends" },
 	{ key: "compactAfterTokens", label: "Auto-compact threshold", type: "number", section: "Compaction",
 		helpText: "Token count that triggers auto-compaction when reached" },
 
