@@ -8,7 +8,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "../om/runtime.js";
-import { PI_VCC_COMPACT_INSTRUCTION, notifyMigrationReminder } from "../hooks/before-compact";
+import { PI_VCC_COMPACT_INSTRUCTION, notifyMigrationReminder, formatCompactionStats } from "../hooks/before-compact";
 import { saveUnifiedConfig, configPath } from "../core/unified-config.js";
 import { readPendingState, clearPendingState, hasPendingData } from "../om/pending.js";
 import { createConfigureOverlay } from "../om/configure-overlay.js";
@@ -18,11 +18,6 @@ import {
 	OM_REFLECTIONS_RECORDED,
 } from "../om/ledger/index.js";
 import { handleCleanup } from "./cleanup.js";
-
-const formatTokens = (n: number): string => {
-	if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-	return String(n);
-};
 
 export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	const prefixMatch = (value: string, prefix: string): boolean => {
@@ -100,6 +95,21 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 				return;
 			}
 
+			// Warn if input starts with a known subcommand but isn't an exact match.
+			// Prevents "/blackhole configure foo" from silently becoming a follow-up.
+			const SUBCOMMAND_NAMES = ["configure", "cleanup", "om-off", "om-on"];
+			const nearMiss = SUBCOMMAND_NAMES.find(
+				name => trimmed.toLowerCase().startsWith(name.toLowerCase()) && trimmed.length > name.length
+			);
+			if (nearMiss) {
+				ctx.ui.notify(`/blackhole ${nearMiss} accepts no arguments. Did you mean \"/blackhole ${nearMiss}\"?`, "warning");
+				return;
+			}
+
+			// Extract follow-up prompt: everything after the subcommand check
+			// that isn't a known subcommand is treated as follow-up text.
+			const followUpPrompt = trimmed ? trimmed : null;
+
 			// If compaction is manual (or legacy noAutoCompact): flush pending OM entries
 			// into the branch before compacting so the summary includes accumulated memory.
 			if (runtime.config.compaction === "manual" && hasPendingData(sessionId)) {
@@ -137,14 +147,18 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 				onComplete: () => {
 					const stats = runtime.compactionStats;
 					if (stats) {
-						ctx.ui.notify(
-							`blackhole: ${stats.summarized} source entries processed; tail kept ${stats.kept} (~${formatTokens(stats.keptTokensEst)} tok).`,
-							"info",
-						);
+						ctx.ui.notify(formatCompactionStats(stats), "info");
 					} else {
 						ctx.ui.notify("Compacted with blackhole", "info");
 					}
 					notifyMigrationReminder(sessionId, (msg, level) => ctx.ui.notify(msg, level as any));
+
+					// Fire follow-up prompt after compaction completes
+					if (followUpPrompt) {
+						try {
+							void Promise.resolve(pi.sendUserMessage(followUpPrompt)).catch(() => {});
+						} catch {}
+					}
 				},
 				onError: (err) => {
 					if (err.message === "Compaction cancelled" || err.message === "Already compacted") {

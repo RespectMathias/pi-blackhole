@@ -10,6 +10,7 @@
  * - markConsolidationError sets 30s retry gate for failed runs.
  */
 import { type Config, type ConfiguredModel, DEFAULTS, loadConfig } from "./config.js";
+import type { CompactionStats } from "../hooks/before-compact.js";
 import { isCooldownActive, getCooldownEntry, recordCooldown, expireCooldowns, modelKey } from "./cooldown.js";
 import { readPendingCursors, writePendingCursors } from "./pending.js";
 import type { PendingOMState } from "./pending.js";
@@ -84,7 +85,7 @@ export class Runtime {
 	/** Epoch ms of the last failed consolidation run (any stage). */
 	lastConsolidationErrorAt: number | undefined;
 	/** Stats from the most recent compaction run (session-scoped via handler closure). */
-	compactionStats: { summarized: number; kept: number; keptTokensEst: number } | null = null;
+	compactionStats: CompactionStats | null = null;
 	/** Whether the most recent compaction was triggered by /blackhole (vs auto-compact). */
 	compactWasPiVcc = false;
 	/** In‑memory pipeline cursors — authoritative copy for gating decisions. */

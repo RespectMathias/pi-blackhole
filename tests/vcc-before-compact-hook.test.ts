@@ -302,3 +302,121 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     expect(result.compaction).toBeDefined();
   });
 });
+
+// ── Bug A: CompactionStats fully populated from buildOwnCut return data ──────
+
+describe("registerBeforeCompactHook: CompactionStats population", () => {
+  beforeEach(() => {
+    if (existsSync(DEBUG_PATH)) unlinkSync(DEBUG_PATH);
+  });
+  afterEach(() => {
+    if (existsSync(CONFIG_PATH)) unlinkSync(CONFIG_PATH);
+    if (existsSync(DEBUG_PATH)) unlinkSync(DEBUG_PATH);
+  });
+
+  test("populates every CompactionStats field on successful compaction", () => {
+    const { pi, invoke, omRuntime } = createMockPi();
+    omRuntime.config.overrideDefaultCompaction = false;
+    registerBeforeCompactHook(pi, omRuntime);
+
+    // 4 user + 4 assistant = 8 messages, normal cut at last user
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+      msg("m5", "user"),
+      msg("m6", "assistant"),
+      msg("m7", "user"),
+      msg("m8", "assistant"),
+    ];
+    invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+
+    const stats = omRuntime.compactionStats;
+    expect(stats).not.toBeNull();
+    expect(stats!.summarized).toBe(6); // m1-m6 summarized
+    expect(stats!.kept).toBe(2);        // m7, m8 kept
+    expect(stats!.keptTokensEst).toBeGreaterThan(0);
+    expect(stats!.totalUserTurns).toBe(4); // m1, m3, m5, m7
+    expect(stats!.keptUserTurns).toBe(1);  // m7 only
+    expect(stats!.requestedKeepUserTurns).toBe(1); // default
+    expect(stats!.keepUserTurnsExplicit).toBe(false); // no keep:N
+    expect(stats!.keepFallbackToCompactAll).toBe(false); // normal cut
+    expect(stats!.smartKeepAdjusted).toBe(false); // not implemented yet
+    expect(stats!.smartFromKeep).toBe(1); // default
+  });
+
+  test("keepFallbackToCompactAll is true when compactAll", () => {
+    const { pi, invoke, omRuntime } = createMockPi();
+    omRuntime.config.overrideDefaultCompaction = false;
+    registerBeforeCompactHook(pi, omRuntime);
+
+    // Single user + autonomous tail → compactAll
+    const entries = [
+      msg("m1", "user", "go"),
+      msg("m2", "assistant"),
+      msg("m3", "toolResult"),
+      msg("m4", "assistant"),
+    ];
+    invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+
+    const stats = omRuntime.compactionStats;
+    expect(stats).not.toBeNull();
+    expect(stats!.keepFallbackToCompactAll).toBe(true);
+    expect(stats!.compactAll).toBe(true);
+  });
+
+  test("totalUserTurns counts all user messages in branch", () => {
+    const { pi, invoke, omRuntime } = createMockPi();
+    omRuntime.config.overrideDefaultCompaction = false;
+    registerBeforeCompactHook(pi, omRuntime);
+
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+      msg("m5", "user"),
+    ];
+    invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+
+    expect(omRuntime.compactionStats!.totalUserTurns).toBe(3);
+  });
+
+  test("keptUserTurns counts user messages after the cut", () => {
+    const { pi, invoke, omRuntime } = createMockPi();
+    omRuntime.config.overrideDefaultCompaction = false;
+    registerBeforeCompactHook(pi, omRuntime);
+
+    // 3 users, cut at last user (m5), so m5 is kept, m1+m3 summarized
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+      msg("m5", "user"),
+      msg("m6", "assistant"),
+    ];
+    invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+
+    expect(omRuntime.compactionStats!.keptUserTurns).toBe(1); // only m5
+  });
+
+  test("keptUserTurns is 0 for compactAll (firstKeptEntryId sentinel)", () => {
+    const { pi, invoke, omRuntime } = createMockPi();
+    omRuntime.config.overrideDefaultCompaction = false;
+    registerBeforeCompactHook(pi, omRuntime);
+
+    const entries = [
+      msg("m1", "user", "go"),
+      msg("m2", "assistant"),
+      msg("m3", "toolResult"),
+      msg("m4", "assistant"),
+    ];
+    invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+
+    // compactAll: everything summarized, nothing kept
+    expect(omRuntime.compactionStats!.compactAll).toBe(true);
+    expect(omRuntime.compactionStats!.keptUserTurns).toBe(0);
+  });
+});

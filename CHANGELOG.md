@@ -3,10 +3,29 @@
 ### Added
 
 - **Mid-run auto-compaction (`midRunCompaction`).** The threshold trigger previously only ran on `agent_end`, which never fires while the agent is looping through tool calls — during long runs `compactAfterTokens` could be exceeded many times over without a single evaluation, and the post-run wait was aborted by any new `agent_start`, deferring compaction indefinitely under continuous use. The threshold is now also evaluated at every `turn_end` (after each assistant message + tool executions). New config enum `midRunCompaction: "resume" | "pause" | "off"` (default `"resume"`): `resume` compacts at the threshold and injects a `blackhole-resume` message (`triggerTurn`) so the agent continues the task with the compacted context; `pause` compacts and hands control back; `off` restores the old end-of-run-only behavior. Available in `/blackhole configure`.
+- **`/blackhole <text>` follow-up prompt.** After compaction, `/blackhole` optionally sends `<text>` as a follow-up message so the model continues the task without re-typing. Wrapped in `void Promise.resolve(...).catch(() => {})` for robust error handling.
+- **Subcommand near-miss detection.** `/blackhole configure foo` now shows a warning instead of silently becoming a follow-up prompt.
+
+- **`/blackhole cleanup` command for orphaned pending files.** Per-session pending files (`*-pending.json`, `*-pending.stale.json`) accumulate when compaction is manual and sessions are abandoned or deleted. The command scans the `pi-blackhole/` directory, cross-references session IDs against all session JSONL files, and provides an interactive TUI picker to safely remove orphaned files. Non-TUI modes (RPC/JSON/print) list orphaned files as a notification without deleting.
+
+### Command formatting cleanup
+
+- `/blackhole` and `/blackhole-memory` subcommands and modes now use `[bracketed]` syntax (e.g. `[om-on]`, `[hybrid]`) with shortened descriptions, making the command palette visually consistent and easier to scan.
+
+### Notification & session goal reorg
+
+- Session goal now derives from the first user message and is persisted at the top across compactions, with `(#N)` entry indexing for traceability.
+- OM info notifications are gated to one per phase/turn — warnings and errors still fire immediately.
+- Git commit extraction now handles tool_call, bash, and post-convert user-text formats.
+- Cooldown skip messages now strip raw JSON from the reason for cleaner display, with a log pointer for debugging.
 
 ### Fixed
 
 - **Mid-run compaction failure resilience.** If the before-compact hook cancels (or compaction errors) after `ctx.compact()` has already aborted the run, resume mode still re-triggers the agent so the task doesn't stall, and further mid-run attempts are suspended until a compaction lowers pressure below the threshold (prevents abort/cancel thrash loops).
+- **Early-session reflection/drop starvation on first compaction.** Added `fullFoldAlways` config flag (default `true`). When no prior full-fold boundary exists, reflections and drops now use the observation boundary instead of being excluded. Previously, fresh sessions silently lost all durable memory on the first compaction because there was no full-fold history to anchor the maintenance boundary.
+- **`capBrief` omission count now computed after `firstHeader` trim.** Previously the "N earlier lines omitted" header was computed before the section-header anchor trim, so the count was understated when headers caused additional trimming. This matched an upstream bug that was already fixed there.
+
+- **Recall-note bloat across multiple compactions.** `compile()` now strips OM content first, then removes all recall-note paragraphs from the previous summary using paragraph-level matching (instead of only stripping a trailing exact match). After 3+ compactions, the summary no longer accumulates 3+ embedded copies of the recall note.
 
 ## [0.4.0] - 2026-07-24
 
@@ -37,12 +56,19 @@
 - **`saveUnifiedConfig` warns before overwriting corrupt config.** If the config file has invalid JSON, a warning is logged before overwriting.
 - **`dropperPressureThreshold` clamped to `[0.01, 1]` in overlay save.** Previously could silently lose value on reload.
 - **`deleteOrphanedBatch` reports partial failures.** "Delete all" now shows `Deleted X/Y (Y-X failed)` when individual unlinks fail.
+- 4 new tests for `fullFoldAlways` behavior in `buildCompactionProjection`: reflections survive first compaction when enabled, excluded when disabled, full-fold boundary still takes precedence, and post-boundary reflections remain excluded.
+- 3 new tests for recall-note deduplication in `compile`: wrapped recall note stripped, OM content stripped before recall note, and three-cycle accumulation produces exactly one recall note.
+- 5 new tests for follow-up prompt: extraction, subcommand exclusion, empty-args suppression, send after completion, compaction-failure suppression.
+- 6 new tests for CompactionStats population: all fields populated, compactAll flag, totalUserTurns count, keptUserTurns count, compactAll zero kept, and format string coverage.
+- 2 new tests for capBrief omission count: header-trimmed count is correct (99 for 200 lines with header at line 100), and no-header fallback still correct.
 
 ### Changed
 
 - **New config key:** `fullFoldAlways` (boolean, default `true`). Added to `UnifiedConfig` schema, defaults, and config file parsing.
+- **CompactionStats expanded from 3 to 11 fields.** Added `compactAll`, `totalUserTurns`, `keptUserTurns`, `requestedKeepUserTurns`, `keepUserTurnsExplicit`, `keepFallbackToCompactAll`, `smartKeepAdjusted`, `smartFromKeep`. All populated from `buildOwnCut` return data (Bug A fix).
+- **Shared `formatCompactionStats` exported.** Both the `/blackhole` command handler and hook's `session_compact` handler now use a single shared formatter, eliminating the duplicate inline toast strings and the private `formatTokens` helper.
+- **Dead ternary collapsed.** `effectiveTailBehavior` no longer has an `isPiVcc` branch with identical values on both sides (Bug B fix).
 - **Dependencies: bumped `@earendil-works/pi-*` packages to `0.81.1`** (agent-core, ai, coding-agent, tui).
-- **Dependencies: bumped `@earendil-works/pi-*` packages to `0.80.3`** (agent-core, ai, coding-agent, tui), vitest to `4.1.9`, pinned vite/js-yaml overrides.
 - **Removed 6 unused exports from `om/cleanup.ts`** (`scanPendingFiles`, `findSessionDirs`, `collectAllSessionIds`, `crossReference`, `formatSize`, `formatAge`).
 
 ### Tests
