@@ -369,7 +369,13 @@ export class Runtime {
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;
 		if (phase === "dropper") this.lastDropperError = message;
-		if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+		if (ctx.hasUI && ctx.ui) {
+			try {
+				ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+			} catch {
+				// Stale extension context — harmless.
+			}
+		}
 		this.markConsolidationError();
 		return message;
 	}
@@ -388,7 +394,13 @@ export class Runtime {
 				await work();
 			} catch (error) {
 				errorMessage = error instanceof Error ? error.message : String(error);
-				if (hasUI && ui) ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");
+				if (hasUI && ui) {
+					try {
+						ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");
+					} catch {
+						// Stale extension context — harmless.
+					}
+				}
 			} finally {
 				onFinally(errorMessage);
 			}
