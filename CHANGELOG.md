@@ -1,3 +1,13 @@
+## [Unreleased]
+
+### Added
+
+- **Mid-run auto-compaction (`midRunCompaction`).** The threshold trigger previously only ran on `agent_end`, which never fires while the agent is looping through tool calls — during long runs `compactAfterTokens` could be exceeded many times over without a single evaluation, and the post-run wait was aborted by any new `agent_start`, deferring compaction indefinitely under continuous use. The threshold is now also evaluated at every `turn_end` (after each assistant message + tool executions). New config enum `midRunCompaction: "resume" | "pause" | "off"` (default `"resume"`): `resume` compacts at the threshold and injects a `blackhole-resume` message (`triggerTurn`) so the agent continues the task with the compacted context; `pause` compacts and hands control back; `off` restores the old end-of-run-only behavior. Available in `/blackhole configure`.
+
+### Fixed
+
+- **Mid-run compaction failure resilience.** If the before-compact hook cancels (or compaction errors) after `ctx.compact()` has already aborted the run, resume mode still re-triggers the agent so the task doesn't stall, and further mid-run attempts are suspended until a compaction lowers pressure below the threshold (prevents abort/cancel thrash loops).
+
 ## [0.4.0] - 2026-07-24
 
 ### Added

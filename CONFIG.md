@@ -22,6 +22,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "compaction": "auto",           // "auto" | "manual" | "off"
   "compactionEngine": "blackhole", // "blackhole" | "pi-default"
   "tailBehavior": "minimal",   // "pi-default" | "minimal"
+  "midRunCompaction": "resume",   // "resume" | "pause" | "off"
   "compactAfterTokens": 81000,    // Token threshold for auto-compaction
 
   // ── Observational Memory ──
@@ -124,9 +125,36 @@ minimal (last user at m5):
 { "tailBehavior": "minimal" }
 ```
 
+### `midRunCompaction`
+
+Controls the **mid-run** auto-compaction trigger. Pi's `agent_end` event only fires when a run exits — during long tool loops (agent calling tools turn after turn) the threshold would otherwise never be evaluated, and accumulated tokens could blow far past `compactAfterTokens` before compaction had any chance to run. This trigger evaluates the threshold at every `turn_end` (after each assistant message + tool executions) while the agent is still working.
+
+Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
+
+| Value | Behavior |
+|-------|----------|
+| `"resume"` | Compact at threshold mid-run, then inject a resume message (`triggerTurn`) so the agent continues the task with the compacted context (default) |
+| `"pause"` | Compact at threshold mid-run, but stop — the user continues manually |
+| `"off"` | No mid-run evaluation; threshold is only checked when the agent finishes a run (pre-0.5 behavior) |
+
+**Why compaction interrupts the run:** Pi's `compact()` aborts the in-flight agent operation by design. `turn_end` is a clean boundary — all tool results of the turn are already persisted, so at most one just-started LLM call is wasted. With `"resume"`, the agent picks the task back up immediately; the compaction summary plus the kept tail (see `tailBehavior`) carry the task state across.
+
+**Re-trigger safety:** after a compaction, accumulated tokens are counted from the fresh compaction entry, so the threshold naturally resets — no compact/resume loops.
+
+```jsonc
+// Compact mid-run and keep working (default)
+{ "midRunCompaction": "resume" }
+
+// Compact mid-run but hand control back to the user
+{ "midRunCompaction": "pause" }
+
+// Old behavior: only evaluate when the run ends
+{ "midRunCompaction": "off" }
+```
+
 ### `compactAfterTokens`
 
-Token threshold for auto-compaction. When `compaction: "auto"` and accumulated tokens since the last compaction exceed this threshold, compaction triggers automatically.
+Token threshold for auto-compaction. When `compaction: "auto"` and accumulated tokens since the last compaction exceed this threshold, compaction triggers automatically — both mid-run (see `midRunCompaction`) and when the agent finishes a run.
 
 | Type | Default |
 |------|---------|

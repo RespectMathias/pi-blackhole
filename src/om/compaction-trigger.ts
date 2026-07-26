@@ -26,6 +26,36 @@ function notifySafely(hasUI: boolean, ui: any, message: string, level: "info" | 
 	}
 }
 
+/**
+ * Message injected after a mid-run compaction so the agent resumes the task
+ * instead of stopping (ctx.compact() aborts the in-flight run and Pi does not
+ * auto-continue).
+ */
+export const MID_RUN_RESUME_CUSTOM_TYPE = "blackhole-resume";
+export const MID_RUN_RESUME_MESSAGE =
+	"Context was auto-compacted mid-task to stay under the token threshold. "
+	+ "The summary above preserves prior progress. Continue the task from where you left off.";
+
+/**
+ * Shared config gating for auto-compaction (agent_end and turn_end paths).
+ * Returns null when compaction may proceed, or a skip reason string.
+ */
+function autoCompactionSkipReason(runtime: Runtime): string | null {
+	if (runtime.config.compaction === "off") return "compaction_off";
+	if (runtime.config.compaction === "manual") return "compaction_manual";
+	if (runtime.config.compactionEngine === "pi-default") return "compactionEngine_pi_default";
+	// NOTE: memory does not gate compaction — memory:false + compaction:auto = compact without OM
+
+	// LEGACY: old config key guards — only apply when new keys are absent (unmigrated config)
+	if (runtime.config.compaction === undefined && runtime.config.compactionEngine === undefined) {
+		if (runtime.config.passive === true) return "passive";
+		if (runtime.config.noAutoCompact === true) return "noAutoCompact";
+		// Don't force Pi to compact unless the user explicitly opted into blackhole's pipeline.
+		if (runtime.config.overrideDefaultCompaction === false) return "overrideDefaultCompaction_false";
+	}
+	return null;
+}
+
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
 	pi.on("agent_start", () => {
 		// Reset the info gate — allow one info notification during the new turn.
@@ -49,6 +79,106 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			throw error;
 		}
 	});
+
+	// Mid-run trigger: turn_end fires after every assistant-message + tool-execution
+	// cycle while the agent is still working. agent_end only fires when the run
+	// exits, so during long tool loops the threshold would otherwise never be
+	// evaluated (the configured compactAfterTokens could be exceeded many times
+	// over before compaction had a chance to run).
+	pi.on("turn_end", (_event: any, ctx: any) => {
+		try {
+			handleTurnEnd(ctx, runtime, pi);
+		} catch (error) {
+			if (isStaleExtensionContextError(error)) return;
+			throw error;
+		}
+	});
+}
+
+function handleTurnEnd(ctx: any, runtime: Runtime, pi: ExtensionAPI): void {
+	runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
+	const dbg = (ev: string, d?: Record<string, unknown>) => debugLog(ev, d, runtime.config.debugLog === true);
+
+	const mode = runtime.config.midRunCompaction ?? "resume";
+	if (mode === "off") {
+		dbg("compaction_trigger.turn_end.skip", { reason: "midRunCompaction_off" });
+		return;
+	}
+	const skipReason = autoCompactionSkipReason(runtime);
+	if (skipReason) {
+		dbg("compaction_trigger.turn_end.skip", { reason: skipReason });
+		return;
+	}
+	if (runtime.compactInFlight) {
+		dbg("compaction_trigger.turn_end.skip", { reason: "compactInFlight" });
+		return;
+	}
+
+	const entries = ctx.sessionManager.getBranch() as Entry[];
+	const tokens = rawTokensSinceLastCompaction(entries);
+	if (tokens < runtime.config.compactAfterTokens) {
+		// Pressure relieved (a compaction ran) — lift any failure suspension.
+		runtime.midRunCompactionSuspended = false;
+		return;
+	}
+	if (runtime.midRunCompactionSuspended) {
+		// A previous mid-run attempt failed/cancelled at this pressure level.
+		// Re-triggering every turn would thrash (each attempt aborts the run).
+		// Stay suspended until a compaction lowers pressure below the threshold.
+		dbg("compaction_trigger.turn_end.skip", { reason: "suspended_after_failure", tokens });
+		return;
+	}
+
+	const hasUI = ctx.hasUI;
+	const ui = ctx.ui;
+	dbg("compaction_trigger.turn_end.threshold_reached", { tokens, threshold: runtime.config.compactAfterTokens, mode });
+	runtime.tryEmitInfo(hasUI, ui,
+		`Observational memory: compaction threshold reached mid-run (~${tokens.toLocaleString()} tokens); compacting${mode === "resume" ? " and resuming" : ""}`);
+
+	// ctx.compact() aborts the in-flight agent run before compacting — that is
+	// the intended trade: turn_end is a clean boundary (tool results are already
+	// persisted; at most one just-started LLM call is wasted).
+	runtime.compactInFlight = true;
+	ctx.compact({
+		onComplete: (_result: any) => {
+			runtime.compactInFlight = false;
+			dbg("compaction_trigger.turn_end.onComplete", { mode });
+			if (mode === "resume") {
+				try {
+					pi.sendMessage(
+						{ customType: MID_RUN_RESUME_CUSTOM_TYPE, content: MID_RUN_RESUME_MESSAGE, display: true },
+						{ triggerTurn: true },
+					);
+				} catch (error) {
+					if (!isStaleExtensionContextError(error)) throw error;
+				}
+			}
+			runtime.tryEmitInfo(hasUI, ui, "Observational memory: mid-run compaction complete");
+		},
+		onError: (error: { message: string }) => {
+			runtime.compactInFlight = false;
+			// Don't retry at this pressure level — the next attempt would abort the
+			// run again just to fail the same way. Cleared when pressure drops.
+			runtime.midRunCompactionSuspended = true;
+			dbg("compaction_trigger.turn_end.onError", { message: error?.message ?? String(error) });
+			if (error.message !== "Compaction cancelled") {
+				notifySafely(hasUI, ui, `Observational memory: mid-run compaction failed: ${error.message}`, "error");
+			}
+			// ctx.compact() already aborted the run. In resume mode the agent must
+			// continue regardless of the failed compaction — otherwise it stalls
+			// mid-task with no one at the wheel.
+			if (mode === "resume") {
+				try {
+					pi.sendMessage(
+						{ customType: MID_RUN_RESUME_CUSTOM_TYPE, content: MID_RUN_RESUME_MESSAGE, display: true },
+						{ triggerTurn: true },
+					);
+				} catch (sendError) {
+					if (!isStaleExtensionContextError(sendError)) throw sendError;
+				}
+			}
+		},
+	});
 }
 
 function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
@@ -70,38 +200,11 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 			compactAfterTokens: runtime.config.compactAfterTokens,
 		});
 
-		// NEW: Unified compaction guards
-		if (runtime.config.compaction === "off") {
-			dbg("compaction_trigger.skip", { reason: "compaction_off" });
+		// Unified + legacy compaction guards (shared with the turn_end path)
+		const skipReason = autoCompactionSkipReason(runtime);
+		if (skipReason) {
+			dbg("compaction_trigger.skip", { reason: skipReason });
 			return;
-		}
-		if (runtime.config.compaction === "manual") {
-			dbg("compaction_trigger.skip", { reason: "compaction_manual" });
-			return;
-		}
-		if (runtime.config.compactionEngine === "pi-default") {
-			dbg("compaction_trigger.skip", { reason: "compactionEngine_pi_default" });
-			return;
-		}
-		// NOTE: memory no longer gates compaction — memory:false + compaction:auto = compact without OM
-
-		// LEGACY: old config key guards — only apply when new keys are absent (unmigrated config)
-		if (runtime.config.compaction === undefined && runtime.config.compactionEngine === undefined) {
-			if (runtime.config.passive === true) {
-				dbg("compaction_trigger.skip", { reason: "passive" });
-				return;
-			}
-			if (runtime.config.noAutoCompact === true) {
-				dbg("compaction_trigger.skip", { reason: "noAutoCompact" });
-				return;
-			}
-			// Don't force Pi to compact unless the user explicitly opted into blackhole's pipeline.
-			// When overrideDefaultCompaction is false (default), blackhole stays out of the way
-			// and lets Pi handle its own compaction naturally.
-			if (runtime.config.overrideDefaultCompaction === false) {
-				dbg("compaction_trigger.skip", { reason: "overrideDefaultCompaction_false" });
-				return;
-			}
 		}
 		if (runtime.compactInFlight) {
 			dbg("compaction_trigger.skip", { reason: "compactInFlight" });
