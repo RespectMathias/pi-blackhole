@@ -86,10 +86,10 @@ describe("createConfigureOverlay", () => {
   });
 
   test("enter toggles boolean field", () => {
-    // First navigate to memory field (index 4 in FIELDS, type boolean)
+    // First navigate to memory field (index 5 in FIELDS, type boolean)
     const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
-    // Navigate down to memory field (4th field, 0-indexed)
-    for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[B");
+    // Navigate down to memory field (5th field, 0-indexed)
+    for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[B");
     // Toggle
     overlay.handleInput("\r");
     const lines = overlay.render(80).join("\n");
@@ -183,8 +183,8 @@ describe("createConfigureOverlay", () => {
 
     test("enter via CSI-u toggles boolean field", () => {
       const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
-      // Navigate down to memory field (index 4, boolean, initially on)
-      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
+      // Navigate down to memory field (index 5, boolean, initially on)
+      for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[1;1B");
       // Verify it's showing "on" before toggle
       const before = overlay.render(80).join("\n");
       expect(before).toContain("Observational memory");
@@ -198,8 +198,8 @@ describe("createConfigureOverlay", () => {
       let stage = 0;
       const done = () => {};
       const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), done);
-      // Navigate to compactAfterTokens (index 3, number field)
-      for (let i = 0; i < 3; i++) overlay.handleInput("\x1b[1;1B");
+      // Navigate to compactAfterTokens (index 4, number field)
+      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
       overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
       const origLength = overlay.render(80).join("\n");
       overlay.handleInput("\x1b[127u"); // Kitty backspace
@@ -211,8 +211,8 @@ describe("createConfigureOverlay", () => {
 
     test("digit via CSI-u works in number editing", () => {
       const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
-      // Navigate to compactAfterTokens (index 3, number field)
-      for (let i = 0; i < 3; i++) overlay.handleInput("\x1b[1;1B");
+      // Navigate to compactAfterTokens (index 4, number field)
+      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
       overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
       overlay.handleInput("\x1b[127u"); // backspace to clear
       overlay.handleInput("\x1b[48u"); // Kitty '0'
@@ -224,8 +224,8 @@ describe("createConfigureOverlay", () => {
 
     test("tab via CSI-u exits edit mode", () => {
       const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
-      // Navigate to compactAfterTokens (index 3, number field)
-      for (let i = 0; i < 3; i++) overlay.handleInput("\x1b[1;1B");
+      // Navigate to compactAfterTokens (index 4, number field)
+      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
       overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
       const editingOutput = overlay.render(80).join("\n");
       overlay.handleInput("\x1b[9u"); // Kitty tab → exit edit
@@ -236,8 +236,8 @@ describe("createConfigureOverlay", () => {
 
     test("space via CSI-u toggles boolean", () => {
       const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
-      // Navigate to memory field (index 4, boolean, initially on)
-      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
+      // Navigate to memory field (index 5, boolean, initially on)
+      for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[1;1B");
       const before = overlay.render(80).join("\n");
       overlay.handleInput("\x1b[32u"); // Kitty space
       const after = overlay.render(80).join("\n");
