@@ -157,7 +157,8 @@ export const DEFAULTS: UnifiedConfig = {
 	compaction: "auto",
 	compactionEngine: "blackhole",
 	tailBehavior: "minimal",
-	midRunCompaction: "resume",
+	midRunCompaction: "off",
+
 
 	observeAfterTokens: 15_000,
 	reflectAfterTokens: 25_000,
