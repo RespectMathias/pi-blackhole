@@ -9,7 +9,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "../om/runtime.js";
 import { PI_VCC_COMPACT_INSTRUCTION, notifyMigrationReminder, formatCompactionStats } from "../hooks/before-compact";
-import { saveUnifiedConfig } from "../core/unified-config.js";
 import { readPendingState, clearPendingState, hasPendingData } from "../om/pending.js";
 import {
 	OM_OBSERVATIONS_DROPPED,
@@ -17,7 +16,7 @@ import {
 	OM_REFLECTIONS_RECORDED,
 } from "../om/ledger/index.js";
 import { handleCleanup } from "./cleanup.js";
-import { openBlackholeSettings } from "../pi-base/blackhole-settings.js";
+import { openBlackholeSettings, config, GLOBAL_CONFIG_DIR } from "../pi-base/blackhole-settings.js";
 
 export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	const prefixMatch = (value: string, prefix: string): boolean => {
@@ -53,36 +52,18 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 				await handleCleanup(ctx);
 				return;
 			}
-			if (trimmed === "om-off") {
-				const saved = saveUnifiedConfig({ memory: false });
-				runtime.config.memory = false;
-				if (saved) {
-					ctx.ui.notify("Observational memory disabled. Use /blackhole om-on to re-enable.", "info");
-				} else {
-					ctx.ui.notify(
-						"Failed to save config — the config file may be read-only (e.g., managed by Nix). " +
-						"Runtime state updated for this session only.",
-						"warning",
-					);
-				}
-				return;
-			}
-			if (trimmed === "om-on") {
-				const saved = saveUnifiedConfig({ memory: true });
-				runtime.config.memory = true;
-				if (saved) {
-					ctx.ui.notify("Observational memory enabled.", "info");
-				} else {
-					ctx.ui.notify(
-						"Failed to save config — the config file may be read-only (e.g., managed by Nix). " +
-						"Runtime state updated for this session only.",
-						"warning",
-					);
-				}
-				return;
-			}
-
-			// Warn if input starts with a known subcommand but isn't an exact match.
+					if (trimmed === "om-off") {
+			config.save({ ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: false }, "global", ctx.cwd, GLOBAL_CONFIG_DIR);
+			runtime.config = config.loadWithWarnings(ctx.cwd, GLOBAL_CONFIG_DIR).config;
+			ctx.ui.notify("Observational memory disabled. Use /blackhole om-on to re-enable.", "info");
+			return;
+		}
+		if (trimmed === "om-on") {
+			config.save({ ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: true }, "global", ctx.cwd, GLOBAL_CONFIG_DIR);
+			runtime.config = config.loadWithWarnings(ctx.cwd, GLOBAL_CONFIG_DIR).config;
+			ctx.ui.notify("Observational memory enabled.", "info");
+			return;
+		}// Warn if input starts with a known subcommand but isn't an exact match.
 			// Prevents "/blackhole configure foo" from silently becoming a follow-up.
 			const SUBCOMMAND_NAMES = ["configure", "cleanup", "om-off", "om-on"];
 			const nearMiss = SUBCOMMAND_NAMES.find(

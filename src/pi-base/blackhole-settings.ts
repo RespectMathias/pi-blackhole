@@ -1,37 +1,52 @@
 /**
- * Blackhole settings modal — replaces the hand-rolled configure overlay
- * with pi-base's `openSettingsModal`.
+ * Blackhole settings — modal-based configuration via ConfigManager.
  *
- * Keeps the existing config path, field set, validation, and save behavior.
- * The only change is the UI: scope-aware modal instead of inline overlay.
+ * Replaces the hand-rolled configure overlay (src/om/configure-overlay.ts)
+ * with pi-base's ConfigManager + openSettingsModal.
+ *
+ * Env-var overrides are applied by ConfigManager after load + validate,
+ * so they take effect for both the runtime path (loadUnifiedConfig) and
+ * the modal path (config.load / config.openSettings).
  */
-import { existsSync } from "node:fs";
+
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { openSettingsModal, type Field } from "./settings/index.js";
-import { getPiAgentDir } from "./paths.js";
-import {
-	DEFAULTS,
-	loadUnifiedConfig,
-	saveUnifiedConfigScoped,
-} from "../core/unified-config.js";
-import type { UnifiedConfig } from "../core/unified-config.js";
+import { ConfigManager } from "../pi-base/config-manager.js";
+import { getPiAgentDir } from "../pi-base/paths.js";
+import { DEFAULTS, type UnifiedConfig } from "../core/unified-config.js";
 
 const CONFIG_FILENAME = "pi-blackhole-config.json";
 
-function getGlobalConfigDir(): string {
-	return join(getPiAgentDir(), "pi-blackhole");
+export const GLOBAL_CONFIG_DIR = join(getPiAgentDir(), "pi-blackhole");
+
+// ── Env-var parsers ──────────────────────────────────────────────────────────
+
+function parseCompactionEnv(raw: string): "auto" | "manual" | "off" | undefined {
+	const trimmed = raw.trim().toLowerCase();
+	return ["auto", "manual", "off"].includes(trimmed) ? (trimmed as "auto" | "manual" | "off") : undefined;
 }
 
-function buildFields(config: UnifiedConfig): Field[] {
-	return [
+function parseCompactionEngineEnv(raw: string): "blackhole" | "pi-default" | undefined {
+	const trimmed = raw.trim().toLowerCase();
+	return ["blackhole", "pi-default"].includes(trimmed) ? (trimmed as "blackhole" | "pi-default") : undefined;
+}
+
+// ── ConfigManager instance ───────────────────────────────────────────────────
+
+export const config = new ConfigManager<UnifiedConfig>({
+	id: "pi-blackhole",
+	label: "pi-blackhole",
+	filename: CONFIG_FILENAME,
+	defaults: DEFAULTS,
+
+	fields: (cfg) => [
 		// ── Compaction ──
 		{
 			key: "compaction",
 			type: "enum",
 			label: "Compaction mode",
 			description: "auto=trigger on threshold, manual=only /blackhole, off=auto:Pi handles, /blackhole:blackhole pipeline",
-			value: config.compaction,
+			value: cfg.compaction,
 			options: ["auto", "manual", "off"],
 			optionLabels: {
 				auto: "auto — trigger on threshold",
@@ -44,7 +59,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "enum",
 			label: "Compaction engine",
 			description: "blackhole=structured summary+OM, pi-default=built-in Pi summarization",
-			value: config.compactionEngine,
+			value: cfg.compactionEngine,
 			options: ["blackhole", "pi-default"],
 			optionLabels: {
 				blackhole: "blackhole — structured summary + OM",
@@ -56,7 +71,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "enum",
 			label: "Visible tail",
 			description: "minimal=keep last user message only (default), pi-default=keep Pi's preserved visible context",
-			value: config.tailBehavior,
+			value: cfg.tailBehavior,
 			options: ["minimal", "pi-default"],
 			optionLabels: {
 				minimal: "minimal — keep last user message only (default)",
@@ -68,7 +83,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "enum",
 			label: "Mid-run compaction",
 			description: "resume=compact at threshold during tool loops and continue (default), pause=compact and stop, off=only check when run ends",
-			value: config.midRunCompaction,
+			value: cfg.midRunCompaction,
 			options: ["resume", "pause", "off"],
 			optionLabels: {
 				resume: "resume — compact and continue (default)",
@@ -81,10 +96,10 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "number",
 			label: "Auto-compact threshold",
 			description: "Token count that triggers auto-compaction when reached",
-			value: config.compactAfterTokens,
-			min: 1000,
+			value: cfg.compactAfterTokens,
+			min: 1_000,
 			max: 500_000,
-			step: 1000,
+			step: 1_000,
 		},
 
 		// ── Observational Memory ──
@@ -93,7 +108,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "boolean",
 			label: "Observational memory",
 			description: "Enable OM workers (observer, reflector, dropper) and content injection",
-			value: config.memory,
+			value: cfg.memory,
 			valueDescriptions: {
 				on: "Active — OM workers + content injection enabled",
 				off: "Suspended — OM disabled",
@@ -104,44 +119,44 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "boolean",
 			label: "Session model fallback",
 			description: "off=skip stage when all OM models fail, instead of falling back to the main coding model",
-			value: config.sessionFallback ?? true,
+			value: cfg.sessionFallback ?? true,
 		},
 		{
 			key: "observeAfterTokens",
 			type: "number",
 			label: "Observer threshold",
 			description: "Tokens accumulated since last observer run before triggering next observe",
-			value: config.observeAfterTokens,
-			min: 1000,
+			value: cfg.observeAfterTokens,
+			min: 1_000,
 			max: 200_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "reflectAfterTokens",
 			type: "number",
 			label: "Reflect + dropper threshold",
 			description: "Tokens accumulated since last reflect before triggering reflector and dropper",
-			value: config.reflectAfterTokens,
-			min: 1000,
+			value: cfg.reflectAfterTokens,
+			min: 1_000,
 			max: 200_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "observationsPoolMaxTokens",
 			type: "number",
 			label: "Observation pool max",
 			description: "Max tokens in observation pool before dropper prunes (fold pressure)",
-			value: config.observationsPoolMaxTokens,
-			min: 1000,
+			value: cfg.observationsPoolMaxTokens,
+			min: 1_000,
 			max: 200_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "observationsPoolTargetTokens",
 			type: "number",
 			label: "Observation pool target",
 			description: "Target tokens after dropper prunes (defaults to half of pool max)",
-			value: config.observationsPoolTargetTokens,
+			value: cfg.observationsPoolTargetTokens,
 			min: 500,
 			max: 200_000,
 			step: 500,
@@ -151,37 +166,37 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "number",
 			label: "Reflector input max",
 			description: "Max prompt tokens for reflector model input (rolling window cap)",
-			value: config.reflectorInputMaxTokens,
-			min: 1000,
+			value: cfg.reflectorInputMaxTokens,
+			min: 1_000,
 			max: 500_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "dropperInputMaxTokens",
 			type: "number",
 			label: "Dropper input max",
 			description: "Max prompt tokens for dropper model input (rolling window cap)",
-			value: config.dropperInputMaxTokens,
-			min: 1000,
+			value: cfg.dropperInputMaxTokens,
+			min: 1_000,
 			max: 500_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "observerChunkMaxTokens",
 			type: "number",
 			label: "Observer chunk max",
 			description: "Max source entry tokens sent to observer per chunk",
-			value: config.observerChunkMaxTokens,
-			min: 1000,
+			value: cfg.observerChunkMaxTokens,
+			min: 1_000,
 			max: 200_000,
-			step: 1000,
+			step: 1_000,
 		},
 		{
 			key: "observerPreambleMaxTokens",
 			type: "number",
 			label: "Observer preamble max",
 			description: "Preamble budget in manual compaction mode (0=auto-compute 30% of chunk)",
-			value: config.observerPreambleMaxTokens,
+			value: cfg.observerPreambleMaxTokens,
 			min: 0,
 			max: 100_000,
 			step: 500,
@@ -191,7 +206,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "number",
 			label: "Dropper pressure threshold",
 			description: "Fraction of reflectorInputMaxTokens that triggers pressure-driven dropper (0-1, default 0.70)",
-			value: config.dropperPressureThreshold,
+			value: cfg.dropperPressureThreshold,
 			min: 0.01,
 			max: 1,
 			step: 0.01,
@@ -201,7 +216,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "number",
 			label: "Max turns per agent",
 			description: "Shared turn cap for background memory agents",
-			value: config.agentMaxTurns,
+			value: cfg.agentMaxTurns,
 			min: 1,
 			max: 100,
 			step: 1,
@@ -211,7 +226,7 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "boolean",
 			label: "Preserve OM on first compaction",
 			description: "When true, early reflections/drops survive the first compaction in a fresh session",
-			value: config.fullFoldAlways,
+			value: cfg.fullFoldAlways,
 		},
 
 		// ── Debug ──
@@ -220,37 +235,159 @@ function buildFields(config: UnifiedConfig): Field[] {
 			type: "boolean",
 			label: "Debug snapshots",
 			description: "Write detailed debug snapshots to /tmp/pi-blackhole-debug.json",
-			value: config.debug,
+			value: cfg.debug,
 		},
 		{
 			key: "debugLog",
 			type: "boolean",
 			label: "Debug JSONL logging",
 			description: "Write structured JSONL debug logs to agent directory",
-			value: config.debugLog,
+			value: cfg.debugLog,
 		},
-	];
-}
+	],
+
+	/**
+	 * Validate raw loaded data, apply legacy migration, clamp numeric fields,
+	 * and apply all env-var overrides (both declarative env-map and legacy
+	 * passive/compaction env vars).
+	 */
+	validate: (raw) => {
+		const parsed = { ...raw } as Partial<UnifiedConfig>;
+
+		// ── Migration: legacy keys → new surface ──
+		if (parsed.compaction === undefined && parsed.compactionEngine === undefined) {
+			if (parsed.passive === true) {
+				parsed.compaction = "off";
+				parsed.memory = false;
+			} else if (parsed.noAutoCompact === true) {
+				parsed.compaction = "manual";
+			}
+			if (parsed.overrideDefaultCompaction === true) {
+				parsed.compactionEngine = "blackhole";
+				if (parsed.tailBehavior === undefined) {
+					parsed.tailBehavior = "minimal";
+				}
+			} else if (parsed.overrideDefaultCompaction === false) {
+				parsed.compactionEngine = "pi-default";
+			}
+			delete (parsed as Record<string, unknown>).passive;
+			delete (parsed as Record<string, unknown>).noAutoCompact;
+			delete (parsed as Record<string, unknown>).overrideDefaultCompaction;
+		}
+
+		// ── Legacy passive env vars (Layer 4, highest priority) ──
+		const envPassive = process.env.PI_BLACKHOLE_PASSIVE
+			?? process.env.PI_VCC_OM_PASSIVE
+			?? process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
+		if (envPassive !== undefined) {
+			const v = envPassive.trim().toLowerCase();
+			if (["1", "true", "yes", "on"].includes(v)) {
+				parsed.compaction = "off";
+				parsed.memory = false;
+			} else if (["0", "false", "no", "off"].includes(v)) {
+				if (raw.passive === true) {
+					delete parsed.compaction;
+					delete (parsed as Record<string, unknown>).memory;
+				}
+			}
+		}
+
+		// ── New compaction env vars ──
+		const envCompaction = process.env.PI_BLACKHOLE_COMPACTION;
+		if (envCompaction !== undefined) {
+			const parsedEnv = parseCompactionEnv(envCompaction);
+			if (parsedEnv) {
+				parsed.compaction = parsedEnv;
+			} else {
+				console.warn(`blackhole: invalid PI_BLACKHOLE_COMPACTION value "${envCompaction}"; ignoring`);
+			}
+		}
+
+		const envCompactionEngine = process.env.PI_BLACKHOLE_COMPACTION_ENGINE;
+		if (envCompactionEngine !== undefined) {
+			const parsedEnv = parseCompactionEngineEnv(envCompactionEngine);
+			if (parsedEnv) {
+				parsed.compactionEngine = parsedEnv;
+			} else {
+				console.warn(`blackhole: invalid PI_BLACKHOLE_COMPACTION_ENGINE value "${envCompactionEngine}"; ignoring`);
+			}
+		}
+
+		// ── Merge with defaults ──
+		const merged = { ...DEFAULTS, ...parsed } as UnifiedConfig;
+
+		// ── Numeric field validation ──
+		const REQUIRED_NUMERIC_KEYS: readonly (keyof UnifiedConfig)[] = [
+			"observeAfterTokens",
+			"reflectAfterTokens",
+			"compactAfterTokens",
+			"observationsPoolMaxTokens",
+			"observationsPoolTargetTokens",
+			"reflectorInputMaxTokens",
+			"dropperInputMaxTokens",
+			"observerChunkMaxTokens",
+			"observerPreambleMaxTokens",
+			"agentMaxTurns",
+		];
+		for (const k of REQUIRED_NUMERIC_KEYS) {
+			const v = (merged as unknown as Record<string, unknown>)[k];
+			const minVal = k === "observerPreambleMaxTokens" ? 0 : 1;
+			if (typeof v !== "number" || !Number.isFinite(v) || v < minVal) {
+				(merged as unknown as Record<string, unknown>)[k] = DEFAULTS[k];
+			}
+		}
+
+		// dropperPressureThreshold — must be in (0, 1]
+		const dpt = merged.dropperPressureThreshold;
+		if (typeof dpt !== "number" || !Number.isFinite(dpt) || dpt <= 0 || dpt > 1) {
+			merged.dropperPressureThreshold = DEFAULTS.dropperPressureThreshold;
+		}
+
+		// observationsPoolTargetTokens — must be < max
+		if (
+			merged.observationsPoolTargetTokens === undefined ||
+			merged.observationsPoolTargetTokens >= merged.observationsPoolMaxTokens
+		) {
+			merged.observationsPoolTargetTokens = Math.floor(merged.observationsPoolMaxTokens / 2);
+		}
+
+		return merged;
+	},
+
+	env: {
+		// Declarative boolean overrides
+		memory: "PI_BLACKHOLE_MEMORY",
+		debug: "PI_BLACKHOLE_DEBUG",
+		debugLog: "PI_BLACKHOLE_DEBUG_LOG",
+		sessionFallback: "PI_BLACKHOLE_SESSION_FALLBACK",
+		fullFoldAlways: "PI_BLACKHOLE_FULL_FOLD_ALWAYS",
+
+		// Declarative numeric overrides
+		compactAfterTokens: "PI_BLACKHOLE_COMPACT_AFTER_TOKENS",
+		observeAfterTokens: "PI_BLACKHOLE_OBSERVE_AFTER_TOKENS",
+		reflectAfterTokens: "PI_BLACKHOLE_REFLECT_AFTER_TOKENS",
+		observationsPoolMaxTokens: "PI_BLACKHOLE_OBSERVATIONS_POOL_MAX_TOKENS",
+		observationsPoolTargetTokens: "PI_BLACKHOLE_OBSERVATIONS_POOL_TARGET_TOKENS",
+		reflectorInputMaxTokens: "PI_BLACKHOLE_REFLECTOR_INPUT_MAX_TOKENS",
+		dropperInputMaxTokens: "PI_BLACKHOLE_DROPPER_INPUT_MAX_TOKENS",
+		observerChunkMaxTokens: "PI_BLACKHOLE_OBSERVER_CHUNK_MAX_TOKENS",
+		observerPreambleMaxTokens: "PI_BLACKHOLE_OBSERVER_PREAMBLE_MAX_TOKENS",
+		agentMaxTurns: "PI_BLACKHOLE_AGENT_MAX_TURNS",
+		dropperPressureThreshold: {
+			var: "PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD",
+			parse: (raw) => {
+				const n = Number.parseFloat(raw);
+				return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
+			},
+		},
+	},
+});
+
+// ── Public entry point ───────────────────────────────────────────────────────
 
 export async function openBlackholeSettings(ctx: ExtensionContext): Promise<void> {
-	const config = loadUnifiedConfig(ctx.cwd);
-	const fields = buildFields(config);
-
-	await openSettingsModal(ctx, {
-		title: "pi-blackhole",
-		configFilename: CONFIG_FILENAME,
-		mode: "buffered",
-		defaults: DEFAULTS as unknown as Record<string, unknown>,
-		globalConfigDir: getGlobalConfigDir(),
-		inferDefaultScope: () =>
-			existsSync(join(ctx.cwd, ".pi", CONFIG_FILENAME)) ? "project" : "global",
-		fields,
-		onSave: async (values, scope) => {
-			const updated = { ...config, ...values } as UnifiedConfig;
-			const saved = saveUnifiedConfigScoped(updated, scope, ctx.cwd);
-			if (!saved) {
-				ctx.ui.notify("Failed to save config — the config file may be read-only (e.g., managed by Nix).", "warning");
-			}
-		},
-	});
+	await config.openSettings(ctx, ctx.cwd, (_updated) => {
+		// onSave is called after the config is persisted; caller (pi-vcc.ts)
+		// is responsible for reloading runtime.config from this instance.
+	}, GLOBAL_CONFIG_DIR);
 }

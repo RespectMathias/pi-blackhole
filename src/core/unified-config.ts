@@ -7,8 +7,26 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir as originalGetAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+
+// ── getAgentDir with PI_CODING_AGENT_DIR override ───────────────────────────
+
+let __lastAgentDirEnv: string | undefined;
+let __cachedAgentDir: string | null = null;
+
+/**
+ * Get the canonical pi-agent data directory.
+ * Respects the `PI_CODING_AGENT_DIR` environment variable when set.
+ * Memoized — only recomputes when the env var changes.
+ */
+export function getAgentDir(): string {
+	const current = process.env.PI_CODING_AGENT_DIR?.trim();
+	if (current === __lastAgentDirEnv && __cachedAgentDir !== null) return __cachedAgentDir;
+	__lastAgentDirEnv = current;
+	__cachedAgentDir = current || originalGetAgentDir();
+	return __cachedAgentDir;
+}
 
 // ── Config path ──────────────────────────────────────────────────────────────
 
@@ -426,63 +444,29 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
 		}
 	}
 
-	// Env override — new compaction surface
+	// Merge defaults then override
+	const merged = { ...DEFAULTS, ...parsed };
+
+	// ── Env override — compaction ──
 	const envCompaction = process.env.PI_BLACKHOLE_COMPACTION;
 	if (envCompaction !== undefined) {
 		const trimmed = envCompaction.trim().toLowerCase();
 		if (isCompaction(trimmed)) {
-			parsed.compaction = trimmed as "auto" | "manual" | "off";
+			merged.compaction = trimmed as "auto" | "manual" | "off";
 		} else {
 			console.warn(`blackhole: invalid PI_BLACKHOLE_COMPACTION value "${envCompaction}"; ignoring`);
 		}
 	}
 
+	// ── Env override — compaction engine ──
 	const envCompactionEngine = process.env.PI_BLACKHOLE_COMPACTION_ENGINE;
 	if (envCompactionEngine !== undefined) {
 		const trimmed = envCompactionEngine.trim().toLowerCase();
 		if (isCompactionEngine(trimmed)) {
-			parsed.compactionEngine = trimmed as "blackhole" | "pi-default";
+			merged.compactionEngine = trimmed as "blackhole" | "pi-default";
 		} else {
 			console.warn(`blackhole: invalid PI_BLACKHOLE_COMPACTION_ENGINE value "${envCompactionEngine}"; ignoring`);
 		}
-	}
-
-	// Merge defaults then override
-	const merged = { ...DEFAULTS, ...parsed };
-
-	// ── Validate all numeric fields ──
-	// Prevents NaN/undefined from leaking into runtime math.
-	// Required numeric keys — must be >= 1 (or >= 0 for observerPreambleMaxTokens)
-	const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof UnifiedConfig> = [
-		"observeAfterTokens", "reflectAfterTokens", "compactAfterTokens",
-		"observationsPoolMaxTokens", "observationsPoolTargetTokens",
-		"reflectorInputMaxTokens", "dropperInputMaxTokens",
-		"observerChunkMaxTokens", "observerPreambleMaxTokens",
-		"agentMaxTurns",
-	];
-	for (const k of REQUIRED_NUMERIC_KEYS) {
-		const v = (merged as Record<string, unknown>)[k];
-		// observerPreambleMaxTokens=0 means "auto-compute from observerChunkMaxTokens (30%)"
-		// so 0 is valid for those fields. All other numeric fields must be strictly positive.
-		const minVal = (k === "observerPreambleMaxTokens") ? 0 : 1;
-		if (typeof v !== "number" || !Number.isFinite(v) || v < minVal) {
-			(merged as Record<string, unknown>)[k] = DEFAULTS[k];
-		}
-	}
-
-
-
-	// Validate dropperPressureThreshold — must be in (0, 1]
-	if (typeof merged.dropperPressureThreshold !== "number" || !Number.isFinite(merged.dropperPressureThreshold) || merged.dropperPressureThreshold <= 0 || merged.dropperPressureThreshold > 1) {
-		merged.dropperPressureThreshold = DEFAULTS.dropperPressureThreshold;
-	}
-
-	// Derive observationsPoolTargetTokens if still unset or invalid (must be < max)
-	if (
-		merged.observationsPoolTargetTokens === undefined ||
-		merged.observationsPoolTargetTokens >= merged.observationsPoolMaxTokens
-	) {
-		merged.observationsPoolTargetTokens = Math.floor(merged.observationsPoolMaxTokens / 2);
 	}
 
 	return merged;

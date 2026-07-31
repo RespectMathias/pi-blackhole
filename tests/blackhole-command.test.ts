@@ -6,7 +6,12 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const testRoot = join(tmpdir(), `pi-blackhole-cmd-test-${process.pid}-${Date.now()}`);
+const { testRoot } = vi.hoisted(() => {
+	// Use require() to avoid import-hoisting issues with vi.mock
+	const { join } = require("node:path");
+	const { tmpdir } = require("node:os");
+	return { testRoot: join(tmpdir(), `pi-blackhole-cmd-test-${process.pid}-${Date.now()}`) };
+});
 
 // Mock the pi SDK before importing our module
 vi.mock("@earendil-works/pi-coding-agent", () => ({

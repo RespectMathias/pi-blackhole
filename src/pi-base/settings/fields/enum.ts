@@ -103,7 +103,7 @@ function makeEnumSubmenu(
  */
 function makeSearchableEnumSubmenu(
   field: EnumField,
-  current: string,
+  _current: string,
   ctx: FieldRenderContext,
 ): SubmenuFactory<string> {
   return (done) => {
@@ -121,11 +121,6 @@ function makeSearchableEnumSubmenu(
       return allItems.filter(
         (item) => item.label.toLowerCase().includes(q) || item.value.toLowerCase().includes(q),
       );
-    }
-
-    function clampSelected(): void {
-      const items = filteredItems();
-      if (selected >= items.length) selected = Math.max(0, items.length - 1);
     }
 
     const component: Component = {

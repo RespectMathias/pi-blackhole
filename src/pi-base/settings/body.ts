@@ -30,7 +30,6 @@ import type {
   Field,
   FieldKeyHint,
   FieldRenderContext,
-  NumberField,
   SettingsModalOptions,
   Tab,
   VisibilityContext,
@@ -261,7 +260,7 @@ export function createSettingsModalBody<F extends Field>(
   // and search filtering loops.
   let cachedVisibleIndices: number[] = [];
 
-  function buildVisibilityContext(field: Field, scope: string): VisibilityContext {
+  function buildVisibilityContext(_field: Field, scope: string): VisibilityContext {
     return {
       get: (key: string) => {
         const r = rows.find((rr) => rr.field.key === key);
@@ -333,14 +332,6 @@ export function createSettingsModalBody<F extends Field>(
   function focusedRow(): InternalRow | undefined {
     const idx = focusedIndex();
     return idx === undefined ? undefined : rows[idx];
-  }
-
-  function focusedAction(): (typeof actionRows)[number] | undefined {
-    if (tabActionFocus >= tabs.length) {
-      const actionIdx = tabActionFocus - tabs.length;
-      return actionRows[actionIdx] ?? undefined;
-    }
-    return undefined;
   }
 
   function isDirty(): boolean {
@@ -607,7 +598,7 @@ export function createSettingsModalBody<F extends Field>(
     }
   }
 
-  function renderConfirmSubmenu(width: number): string[] {
+  function renderConfirmSubmenu(_width: number): string[] {
     const lines: string[] = [];
     lines.push("");
     lines.push("  You have unsaved changes:");
@@ -678,7 +669,7 @@ export function createSettingsModalBody<F extends Field>(
     ];
   }
 
-  function renderScopeActionConfirm(width: number): string[] {
+  function renderScopeActionConfirm(_width: number): string[] {
     const lines: string[] = [];
     const isReset = scopeActionConfirm!.action === "reset";
     const options = getScopeActionOptions(scopeActionConfirm!.action);
@@ -1019,17 +1010,6 @@ export function createSettingsModalBody<F extends Field>(
     args.tui.requestRender();
   }
 
-  function cycleTab(delta: number): void {
-    if (tabs.length === 0) return;
-    const idx = tabs.findIndex((t) => t.id === activeTabId);
-    const nextIdx = ((idx === -1 ? 0 : idx) + delta + tabs.length) % tabs.length;
-    activeTabId = tabs[nextIdx]!.id;
-    fieldSelected = 0;
-    scroll = 0;
-    tabActionFocus = -1;
-    updateVisibleIndices();
-    args.tui.requestRender();
-  }
 
   function renderTabBar(width: number): string {
     if (tabs.length === 0) return "";
@@ -1078,7 +1058,7 @@ export function createSettingsModalBody<F extends Field>(
     return args.theme.bg("toolPendingBg", pad(text, width));
   }
 
-  function renderFooter(width: number): string[] {
+  function renderFooter(_width: number): string[] {
     const row = focusedRow();
     let rowHints: FieldKeyHint[] = [];
     if (row) {

@@ -24,7 +24,6 @@ import { matchesKey, type Component, type SelectItem } from "@earendil-works/pi-
 import { SelectList } from "@earendil-works/pi-tui";
 import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { handleInlineEditInput, renderInlineEditValue, type InlineEditState } from "../inline-edit";
-import { formatHintLine } from "../frame";
 import type {
   FieldKeyResult,
   FieldRenderer,
@@ -237,12 +236,6 @@ function makeNumberValuesSubmenu(
       render(width: number): string[] {
         const lines = [...list.render(width)];
         lines.push("");
-        const hints = [
-          { key: "↑↓", label: "select" },
-          { key: "enter", label: "save" },
-          { key: "esc", label: "cancel" },
-        ];
-        const hintText = `  ${formatHintLine(hints, ctx.theme)}`;
         return lines;
       },
       invalidate(): void {

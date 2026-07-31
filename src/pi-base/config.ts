@@ -12,7 +12,7 @@
  * in tests (e.g. a temp dir) to disable the gate.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getPiAgentDir } from "./paths.js";
 

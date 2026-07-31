@@ -28,10 +28,8 @@ import type { Api, Model, ModelThinkingLevel, ThinkingLevelMap } from "@earendil
 import {
   matchesKey,
   SelectList,
+  SelectItem,
   truncateToWidth,
-  type Component,
-  type SelectItem,
-  type TUI,
 } from "@earendil-works/pi-tui";
 import { formatHintLine, type KeyHint } from "../frame";
 import { handleInlineEditInput, type InlineEditState } from "../inline-edit";
