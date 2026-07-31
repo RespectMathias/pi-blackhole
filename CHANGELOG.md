@@ -1,3 +1,23 @@
+## [Unreleased]
+
+### Added
+
+- **pi-base config modal for `/blackhole configure`.** ([#41](https://github.com/k0valik/pi-blackhole/pull/41)) The hand-rolled configure overlay is replaced with pi-base's ConfigManager + settings modal (vendored into `src/pi-base/`), with scope-aware editing: global config lives at `<agentDir>/pi-blackhole/` (respecting `PI_CODING_AGENT_DIR`), project config overlays `<cwd>/.pi/pi-blackhole-config.json`.
+
+### Changed
+
+- **Custom provider streams discovered through pi's model registry.** ([#42](https://github.com/k0valik/pi-blackhole/pull/42), thanks @FelikZ) The bridge that lets OM agents (observer/reflector/dropper) use custom providers (e.g. claude-bridge) now captures `streamSimple` functions from pi's public registry API (`getRegisteredProviderIds`/`getRegisteredProviderConfig`) on every `agent_start`, instead of wrapping `pi.registerProvider` and reading the private `registeredProviders` field. Works regardless of extension load order and includes providers added after startup; the legacy discovery path remains available for older pi releases.
+
+### Fixed
+
+- **Manual-mode pending files now contain full observation payloads.** ([#41](https://github.com/k0valik/pi-blackhole/pull/41)) The `noAutoCompact` → `compaction:'manual'` migration is completed: `isManualMode()` now checks both keys across all save/load gates, so manual-mode observations are written to the pending file (`savePendingObservation`) instead of falling through to `appendEntry()` (JSONL) — restoring crash-safe mid-run interruption recovery and `/blackhole flush` parity.
+
+### Dependencies
+
+- **Bumped `@earendil-works/pi-*` packages to `0.83.0`** (agent-core, ai, coding-agent, tui).
+
+---
+
 ## [0.4.2] - 2026-07-27
 
 ### Changed

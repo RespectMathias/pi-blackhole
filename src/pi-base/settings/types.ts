@@ -1,5 +1,6 @@
 /**
- * Public types for the `@k0valik/pi-base` settings modal (vendored from wierdbytes/pi-common).
+ * Public types for the `@k0valik/pi-base` settings modal (originally
+ * vendored from wierdbytes/pi-common; since heavily reworked).
  *
  * The modal accepts a flat array of `Field`s (or, when `tabs` is set,
  * one such array per tab) and a single `onChange` callback. Every

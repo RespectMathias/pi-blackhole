@@ -1,6 +1,8 @@
 /**
  * @k0valik/pi-base/settings — public entry point for the settings
- * modal feature (vendored from wierdbytes/pi-common/settings).
+ * modal feature (originally vendored from wierdbytes/pi-common/settings;
+ * since heavily reworked — buffered save mode, scope-aware values,
+ * validation, fuzzy filtering).
  *
  * High-level: `openSettingsModal(ctx, opts)` opens a centered popup,
  * persists changes via `opts.onChange`, and resolves on close.
