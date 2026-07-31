@@ -396,6 +396,15 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
 		raw = merged;
 	}
 
+	// Project-local override: <cwd>/.pi/pi-blackhole-config.json
+	const projectConfigPath = join(cwd, ".pi", CONFIG_FILE);
+	const projectResult = readJson(projectConfigPath);
+	const projectRaw = projectResult.data;
+	if (projectResult.error && onWarn) onWarn(projectResult.error);
+	if (projectRaw && isRecord(projectRaw)) {
+		raw = { ...raw, ...projectRaw };
+	}
+
 	const parsed = parseConfig(raw);
 
 	// ── Migration: old → new knobs ──
@@ -486,6 +495,36 @@ export function saveUnifiedConfig(settings: Partial<UnifiedConfig>): boolean {
 	try {
 		const path = configPath();
 		const dir = dirname(path);
+		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+		const existingResult = readJson(path);
+		const existing = existingResult.data ?? {};
+		if (existingResult.error) {
+			console.warn("blackhole: overwriting corrupt config file at " + path);
+		}
+		const next = { ...existing, ...settings };
+		writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Write settings back to disk for a specific scope.
+ *
+ * - global: writes to `<agentDir>/pi-blackhole/pi-blackhole-config.json`
+ * - project: writes to `<cwd>/.pi/pi-blackhole-config.json`
+ *
+ * Preserves unknown keys in the target file.
+ */
+export function saveUnifiedConfigScoped(
+	settings: Partial<UnifiedConfig>,
+	scope: "global" | "project",
+	cwd: string,
+): boolean {
+	try {
+		const dir = scope === "project" ? join(cwd, ".pi") : join(getAgentDir(), "pi-blackhole");
+		const path = join(dir, CONFIG_FILE);
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 		const existingResult = readJson(path);
 		const existing = existingResult.data ?? {};

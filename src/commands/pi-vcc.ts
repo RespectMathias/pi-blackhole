@@ -9,15 +9,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "../om/runtime.js";
 import { PI_VCC_COMPACT_INSTRUCTION, notifyMigrationReminder, formatCompactionStats } from "../hooks/before-compact";
-import { saveUnifiedConfig, configPath } from "../core/unified-config.js";
+import { saveUnifiedConfig } from "../core/unified-config.js";
 import { readPendingState, clearPendingState, hasPendingData } from "../om/pending.js";
-import { createConfigureOverlay } from "../om/configure-overlay.js";
 import {
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_RECORDED,
 } from "../om/ledger/index.js";
 import { handleCleanup } from "./cleanup.js";
+import { openBlackholeSettings } from "../pi-base/blackhole-settings.js";
 
 export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 	const prefixMatch = (value: string, prefix: string): boolean => {
@@ -46,20 +46,7 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 			const trimmed = (typeof args === "string" ? args : "").trim();
 			if (trimmed === "configure") {
 				// Open the config overlay
-				const result = await ctx.ui.custom<{ saved: boolean; path: string; error?: string } | undefined>(
-					(tui, theme, _kb, done) => createConfigureOverlay(configPath(), theme, tui, done),
-					{ overlay: true },
-				);
-				if (result) {
-					if (result.error) {
-						ctx.ui.notify(result.error, "warning");
-					} else if (result.saved) {
-						runtime.reloadConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
-						ctx.ui.notify("Configuration saved.", "info");
-					} else {
-						ctx.ui.notify("Failed to save configuration — the config file may be read-only (e.g., managed by Nix).", "warning");
-					}
-				}
+				await openBlackholeSettings(ctx);
 				return;
 			}
 			if (trimmed === "cleanup") {
