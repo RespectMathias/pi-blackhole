@@ -6,11 +6,23 @@
  *   - Added mockRuntime with ensureConfig that reads our config format
  *   - Removed PI_VCC_CONFIG_PATH env var (blackhole uses unified config)
  */
-import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { existsSync, unlinkSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from "fs";
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+  vi,
+} from "vitest";
+import { existsSync, unlinkSync, readFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { registerBeforeCompactHook, PI_VCC_COMPACT_INSTRUCTION } from "../src/hooks/before-compact.js";
+import {
+  registerBeforeCompactHook,
+  PI_VCC_COMPACT_INSTRUCTION,
+} from "../src/hooks/before-compact.js";
 
 let tmpDir: string;
 let CONFIG_PATH: string;
@@ -77,12 +89,15 @@ function makeEvent(branchEntries: any[], customInstructions?: string) {
   };
 }
 
-const msg = (id: string, role: "user" | "assistant" | "toolResult", content = "x") => ({
+const msg = (
+  id: string,
+  role: "user" | "assistant" | "toolResult",
+  content = "x",
+) => ({
   id,
   type: "message",
   message: { role, content },
 });
-const comp = (id: string, firstKeptEntryId?: string) => ({ id, type: "compaction", firstKeptEntryId });
 
 describe("registerBeforeCompactHook: cancel paths", () => {
   beforeEach(() => {
@@ -99,18 +114,24 @@ describe("registerBeforeCompactHook: cancel paths", () => {
     registerBeforeCompactHook(pi, omRuntime);
 
     const entries = [msg("m1", "user"), msg("m2", "assistant")];
-    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({ cancel: true });
+    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({
+      cancel: true,
+    });
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0].level).toBe("warning");
     expect(notifyCalls[0].msg).toContain("Too few live");
   });
 
   test("/pi-vcc with no user message compacts all instead of cancelling", () => {
-    const { pi, invoke, notifyCalls, omRuntime } = createMockPi();
+    const { pi, invoke, omRuntime } = createMockPi();
     omRuntime.config.overrideDefaultCompaction = false;
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "assistant"), msg("m2", "assistant"), msg("m3", "assistant")];
+    const entries = [
+      msg("m1", "assistant"),
+      msg("m2", "assistant"),
+      msg("m3", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
     // No longer cancels — compacts all to recover from context overflow
     expect(result.cancel).toBeUndefined();
@@ -154,7 +175,9 @@ describe("registerBeforeCompactHook: cancel paths", () => {
       msg("m1", "user", "SECRET_TOKEN_abc123"),
       msg("m2", "assistant", "sensitive response"),
     ];
-    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({ cancel: true });
+    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({
+      cancel: true,
+    });
 
     expect(existsSync(DEBUG_PATH)).toBe(true);
     const snapshot = JSON.parse(readFileSync(DEBUG_PATH, "utf-8"));
@@ -172,7 +195,9 @@ describe("registerBeforeCompactHook: cancel paths", () => {
     omRuntime.config.overrideDefaultCompaction = false;
     registerBeforeCompactHook(pi, omRuntime);
     const entries = [msg("m1", "user"), msg("m2", "assistant")];
-    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({ cancel: true });
+    expect(invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION))).toEqual({
+      cancel: true,
+    });
     expect(existsSync(DEBUG_PATH)).toBe(false);
   });
 });
@@ -219,7 +244,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "off" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
 
     // compaction: "off" allows explicit /blackhole through blackhole's pipeline
@@ -231,7 +261,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "off" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, undefined));
 
     expect(result).toBeUndefined();
@@ -241,7 +276,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "manual" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
 
     // Should proceed to buildOwnCut with enough messages
@@ -253,7 +293,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "manual" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, undefined));
 
     expect(result).toBeUndefined();
@@ -263,7 +308,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "auto" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
 
     expect(result.cancel).toBeUndefined();
@@ -274,7 +324,12 @@ describe("registerBeforeCompactHook: new config key guards", () => {
     const { pi, invoke, omRuntime } = createMockPi({ compaction: "auto" });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, undefined));
 
     expect(result.cancel).toBeUndefined();
@@ -282,20 +337,34 @@ describe("registerBeforeCompactHook: new config key guards", () => {
   });
 
   test("T34: compactionEngine:pi-default + auto → return (let Pi handle)", () => {
-    const { pi, invoke, omRuntime } = createMockPi({ compactionEngine: "pi-default" });
+    const { pi, invoke, omRuntime } = createMockPi({
+      compactionEngine: "pi-default",
+    });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, undefined));
 
     expect(result).toBeUndefined();
   });
 
   test("T35: compactionEngine:pi-default + /blackhole → proceeds (/blackhole always uses blackhole)", () => {
-    const { pi, invoke, omRuntime } = createMockPi({ compactionEngine: "pi-default" });
+    const { pi, invoke, omRuntime } = createMockPi({
+      compactionEngine: "pi-default",
+    });
     registerBeforeCompactHook(pi, omRuntime);
 
-    const entries = [msg("m1", "user"), msg("m2", "assistant"), msg("m3", "user"), msg("m4", "assistant")];
+    const entries = [
+      msg("m1", "user"),
+      msg("m2", "assistant"),
+      msg("m3", "user"),
+      msg("m4", "assistant"),
+    ];
     const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
 
     expect(result.cancel).toBeUndefined();
@@ -335,10 +404,10 @@ describe("registerBeforeCompactHook: CompactionStats population", () => {
     const stats = omRuntime.compactionStats;
     expect(stats).not.toBeNull();
     expect(stats!.summarized).toBe(6); // m1-m6 summarized
-    expect(stats!.kept).toBe(2);        // m7, m8 kept
+    expect(stats!.kept).toBe(2); // m7, m8 kept
     expect(stats!.keptTokensEst).toBeGreaterThan(0);
     expect(stats!.totalUserTurns).toBe(4); // m1, m3, m5, m7
-    expect(stats!.keptUserTurns).toBe(1);  // m7 only
+    expect(stats!.keptUserTurns).toBe(1); // m7 only
     expect(stats!.requestedKeepUserTurns).toBe(1); // default
     expect(stats!.keepUserTurnsExplicit).toBe(false); // no keep:N
     expect(stats!.keepFallbackToCompactAll).toBe(false); // normal cut

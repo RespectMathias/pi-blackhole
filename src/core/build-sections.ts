@@ -9,7 +9,10 @@ import { clipSentence, firstLine, nonEmptyLines } from "./content";
 import type { SectionData } from "../sections";
 import { extractGoals } from "../extract/goals";
 import { extractFiles } from "../extract/files";
-import { extractPreferences, dedupPreferencesAgainstGoals } from "../extract/preferences";
+import {
+  extractPreferences,
+  dedupPreferencesAgainstGoals,
+} from "../extract/preferences";
 import { extractCommits, formatCommits } from "../extract/commits";
 import { buildBriefSections, stringifyBrief } from "./brief";
 
@@ -39,7 +42,10 @@ const extractOutstandingContext = (blocks: NormalizedBlock[]): string[] => {
         if (/^\s*\(/.test(line)) continue;
         // Require sentence-like start: capital letter, code identifier, or quote
         if (!/^\s*["'`*_]?[A-Z`]/.test(line)) continue;
-        const clipped = b.kind === "user" ? `[user] ${clipSentence(line, 150)}` : clipSentence(line, 150);
+        const clipped =
+          b.kind === "user"
+            ? `[user] ${clipSentence(line, 150)}`
+            : clipSentence(line, 150);
         if (!items.includes(clipped)) items.push(clipped);
         break;
       }

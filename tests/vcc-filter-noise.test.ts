@@ -11,7 +11,11 @@ describe("filterNoise", () => {
     ];
     const result = filterNoise(blocks);
     expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ kind: "tool_call", name: "Read", args: { path: "x.ts" } });
+    expect(result[0]).toEqual({
+      kind: "tool_call",
+      name: "Read",
+      args: { path: "x.ts" },
+    });
   });
 
   it("removes user blocks that are pure XML wrappers", () => {
@@ -26,7 +30,10 @@ describe("filterNoise", () => {
 
   it("cleans XML wrappers from user text but keeps real content", () => {
     const blocks: NormalizedBlock[] = [
-      { kind: "user", text: "<system-reminder>noise</system-reminder>\nFix the login" },
+      {
+        kind: "user",
+        text: "<system-reminder>noise</system-reminder>\nFix the login",
+      },
     ];
     const result = filterNoise(blocks);
     expect(result).toHaveLength(1);

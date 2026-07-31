@@ -212,16 +212,25 @@ export class ConfigManager<T extends object> {
    * @param cwd Working directory (required for "project" scope)
    * @param configDir Override the global config dir (for tests)
    */
-  save(config: T, scope: "global" | "project", cwd?: string, configDir?: string): void {
+  save(
+    config: T,
+    scope: "global" | "project",
+    cwd?: string,
+    configDir?: string,
+  ): void {
     if (scope === "project" && !cwd) {
       throw new Error("cwd is required for project-scoped config save");
     }
 
-    const dir = scope === "project" && cwd ? join(cwd, ".pi") : (configDir ?? getExtensionsDir());
+    const dir =
+      scope === "project" && cwd
+        ? join(cwd, ".pi")
+        : (configDir ?? getExtensionsDir());
     const knownKeys = new Set(Object.keys(this.opts.defaults));
 
     // Read the existing file. If none exists, start from an empty object.
-    const existing = readConfig<Record<string, unknown>>(this.opts.filename, dir) ?? {};
+    const existing =
+      readConfig<Record<string, unknown>>(this.opts.filename, dir) ?? {};
 
     // Build field map for validation
     const fieldMap = new Map<string, Field>();
@@ -352,7 +361,10 @@ export class ConfigManager<T extends object> {
         existsSync(join(cwd, ".pi", this.opts.filename)) ? "project" : "global",
       fields,
       onChange,
-      onSave: async (values: Record<string, unknown>, scope: "global" | "project") => {
+      onSave: async (
+        values: Record<string, unknown>,
+        scope: "global" | "project",
+      ) => {
         const merged = { ...config, ...values };
         const updated = this.opts.validate
           ? this.opts.validate(merged as Record<string, unknown>)
@@ -379,13 +391,23 @@ export class ConfigManager<T extends object> {
    * After this call, the file contains only unknown keys. If no
    * unknown keys exist, the file is deleted entirely.
    */
-  resetScope(scope: "global" | "project", cwd?: string, configDir?: string): void {
+  resetScope(
+    scope: "global" | "project",
+    cwd?: string,
+    configDir?: string,
+  ): void {
     if (scope === "project" && !cwd) {
       throw new Error("cwd is required for project-scoped config reset");
     }
-    const dir = scope === "project" && cwd ? join(cwd, ".pi") : (configDir ?? getExtensionsDir());
+    const dir =
+      scope === "project" && cwd
+        ? join(cwd, ".pi")
+        : (configDir ?? getExtensionsDir());
     const knownKeys = new Set(Object.keys(this.opts.defaults));
-    const existing = readConfig<Record<string, unknown>>(this.opts.filename, dir);
+    const existing = readConfig<Record<string, unknown>>(
+      this.opts.filename,
+      dir,
+    );
     const unknownKeys: Record<string, unknown> = {};
     if (existing && typeof existing === "object") {
       for (const [key, val] of Object.entries(existing)) {
@@ -404,11 +426,18 @@ export class ConfigManager<T extends object> {
    * this removes unknown keys as well — the file is completely gone.
    * Next load will use nothing but defaults.
    */
-  deleteScope(scope: "global" | "project", cwd?: string, configDir?: string): void {
+  deleteScope(
+    scope: "global" | "project",
+    cwd?: string,
+    configDir?: string,
+  ): void {
     if (scope === "project" && !cwd) {
       throw new Error("cwd is required for project-scoped config delete");
     }
-    const dir = scope === "project" && cwd ? join(cwd, ".pi") : (configDir ?? getExtensionsDir());
+    const dir =
+      scope === "project" && cwd
+        ? join(cwd, ".pi")
+        : (configDir ?? getExtensionsDir());
     deleteConfig(this.opts.filename, dir);
   }
 
@@ -416,7 +445,11 @@ export class ConfigManager<T extends object> {
    * Check global and project-local config files for malformed JSON.
    * Warns via ctx.ui.notify if any are found.
    */
-  private warnOnMalformedConfig(ctx: ExtensionContext, cwd: string, configDir?: string): void {
+  private warnOnMalformedConfig(
+    ctx: ExtensionContext,
+    cwd: string,
+    configDir?: string,
+  ): void {
     const filename = this.opts.filename;
 
     const globalStatus = checkConfigFile(filename, configDir);

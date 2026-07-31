@@ -11,14 +11,27 @@ const entries: RenderedEntry[] = [
   { index: 0, role: "user", summary: "Fix login bug" },
   { index: 1, role: "assistant", summary: "Reading auth.ts" },
   { index: 2, role: "tool_result", summary: "[Read] code here" },
-  { index: 3, role: "assistant", summary: "Found the root cause in auth module" },
+  {
+    index: 3,
+    role: "assistant",
+    summary: "Found the root cause in auth module",
+  },
 ];
 
 const messages: Message[] = [
   { role: "user", content: "Fix login bug" } as any,
-  { role: "assistant", content: [{ type: "text", text: "Reading auth.ts" }] } as any,
-  { role: "toolResult", content: [{ type: "text", text: "[Read] code here" }] } as any,
-  { role: "assistant", content: [{ type: "text", text: "Found the root cause in auth module" }] } as any,
+  {
+    role: "assistant",
+    content: [{ type: "text", text: "Reading auth.ts" }],
+  } as any,
+  {
+    role: "toolResult",
+    content: [{ type: "text", text: "[Read] code here" }],
+  } as any,
+  {
+    role: "assistant",
+    content: [{ type: "text", text: "Found the root cause in auth module" }],
+  } as any,
 ];
 
 describe("searchEntries", () => {
@@ -42,9 +55,7 @@ describe("searchEntries", () => {
     const longEntries: RenderedEntry[] = [
       { index: 0, role: "user", summary: "A".repeat(300) },
     ];
-    const longMsgs: Message[] = [
-      { role: "user", content: longText } as any,
-    ];
+    const longMsgs: Message[] = [{ role: "user", content: longText } as any];
     const r = searchEntries(longEntries, longMsgs, "hidden_keyword");
     expect(r).toHaveLength(1);
     expect(r[0].snippet).toContain("hidden_keyword");
@@ -78,7 +89,10 @@ describe("searchEntries", () => {
     ];
     const extraMsgs: Message[] = [
       { role: "user", content: "error with (foo pattern" } as any,
-      { role: "assistant", content: [{ type: "text", text: "no match here" }] } as any,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "no match here" }],
+      } as any,
     ];
     const r = searchEntries(extraEntries, extraMsgs, "(foo");
     expect(r).toHaveLength(1);
@@ -103,7 +117,9 @@ describe("searchEntries", () => {
   it("natural language ranks by BM25 score", () => {
     const r = searchEntries(entries, messages, "root cause auth");
     // Top result has more terms matched = higher BM25 score
-    expect(r[0].matchCount!).toBeGreaterThanOrEqual(r[r.length - 1].matchCount!);
+    expect(r[0].matchCount!).toBeGreaterThanOrEqual(
+      r[r.length - 1].matchCount!,
+    );
   });
 
   it("filters stopwords from queries", () => {
@@ -188,9 +204,7 @@ describe("searchEntries", () => {
             name: "edit",
             arguments: {
               path: "main.go",
-              edits: [
-                { oldText: "func old() {}", newText: "func new() {}" },
-              ],
+              edits: [{ oldText: "func old() {}", newText: "func new() {}" }],
             },
           },
         ],
@@ -261,7 +275,6 @@ describe("searchEntries", () => {
     // "user wants" in file mode should NOT match (only in transcript)
     const noMatch = searchEntries(e, m, "user wants", undefined, "file");
     expect(noMatch).toHaveLength(0);
-
   });
 
   it("mode:'file' populates fileMatches correctly", () => {
@@ -315,7 +328,6 @@ describe("searchEntries", () => {
     // regex in file mode should match edit content (same line)
     const r = searchEntries(e, m, "old.*version", undefined, "file");
     expect(r).toHaveLength(1);
-
   });
 
   it("mode:'file' does not include bash command output", () => {
@@ -336,5 +348,4 @@ describe("searchEntries", () => {
     const hybrid = searchEntries(e, m, "secret_api_key");
     expect(hybrid).toHaveLength(1);
   });
-
 });

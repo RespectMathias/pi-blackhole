@@ -1,8 +1,13 @@
 import type { NormalizedBlock } from "../types";
 
 const NOISE_TOOLS = new Set([
-  "TodoWrite", "TodoRead", "ToolSearch", "WebSearch",
-  "AskUser", "ExitSpecMode", "GenerateDroid",
+  "TodoWrite",
+  "TodoRead",
+  "ToolSearch",
+  "WebSearch",
+  "AskUser",
+  "ExitSpecMode",
+  "GenerateDroid",
 ]);
 
 const NOISE_STRINGS = [
@@ -11,7 +16,8 @@ const NOISE_STRINGS = [
   "IMPORTANT: TodoWrite was not called yet.",
 ];
 
-const XML_WRAPPER_RE = /<(system-reminder|ide_opened_file|command-message|context-window-usage)[^>]*>[\s\S]*?<\/\1>/g;
+const XML_WRAPPER_RE =
+  /<(system-reminder|ide_opened_file|command-message|context-window-usage)[^>]*>[\s\S]*?<\/\1>/g;
 
 /** Return cleaned user text, or null if the block is noise. Cleans once. */
 const cleanOrNull = (text: string): string | null => {

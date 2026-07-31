@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { invalidExpandIndices, mergeExpandedIntoSearchResults } from "../src/tools/recall.js";
-import type { SearchHit, RenderedEntry } from "../src/core/search-entries.js";
+import {
+  invalidExpandIndices,
+  mergeExpandedIntoSearchResults,
+} from "../src/tools/recall.js";
+import type { SearchHit } from "../src/core/search-entries.js";
 
 // Re-export type alias for consistency
 import type { RenderedEntry as RenderEntry } from "../src/core/render-entries.js";
@@ -20,10 +23,16 @@ describe("invalidExpandIndices", () => {
 
 describe("mergeExpandedIntoSearchResults", () => {
   const makeSearchHit = (index: number, summary: string): SearchHit => ({
-    index, role: "assistant", summary, id: `s${index}`,
+    index,
+    role: "assistant",
+    summary,
+    id: `s${index}`,
   });
   const makeExpanded = (index: number, summary: string): RenderEntry => ({
-    index, role: "assistant", summary, id: `e${index}`,
+    index,
+    role: "assistant",
+    summary,
+    id: `e${index}`,
   });
 
   it("returns empty when both inputs are empty", () => {
@@ -63,7 +72,7 @@ describe("mergeExpandedIntoSearchResults", () => {
     ];
     const merged = mergeExpandedIntoSearchResults(search, expanded);
     expect(merged).toHaveLength(4);
-    expect(merged.map(r => r.index)).toEqual([1, 2, 4, 5]);
+    expect(merged.map((r) => r.index)).toEqual([1, 2, 4, 5]);
     expect(merged[0].summary).toBe("search result");
     expect(merged[1].summary).toBe("full entry 2");
     expect(merged[2].summary).toBe("another result");
@@ -82,7 +91,7 @@ describe("mergeExpandedIntoSearchResults", () => {
     ];
     const merged = mergeExpandedIntoSearchResults(search, expanded);
     expect(merged).toHaveLength(4);
-    expect(merged.map(r => r.index)).toEqual([0, 3, 7, 9]);
+    expect(merged.map((r) => r.index)).toEqual([0, 3, 7, 9]);
     // Index 3 got expanded
     expect(merged[1].summary).toBe("FULL VERSION");
     // Unchanged entries keep their summaries

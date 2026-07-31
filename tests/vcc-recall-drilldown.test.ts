@@ -87,7 +87,10 @@ describe("expandEntryFile", () => {
     const dir = mkdtempSync(join(tmpdir(), "drilldown-full-"));
     const file = join(dir, "session.jsonl");
     try {
-      const longContent = Array.from({ length: 50 }, (_, i) => `line ${i + 1}: some content`).join("\n");
+      const longContent = Array.from(
+        { length: 50 },
+        (_, i) => `line ${i + 1}: some content`,
+      ).join("\n");
       const lines = [
         JSON.stringify({
           type: "message",
@@ -355,31 +358,61 @@ describe("parseDrillDown with offset/limit", () => {
   it("parses #N:path:offset", async () => {
     const { parseDrillDown } = await import("../src/core/drill-down.js");
     const r = parseDrillDown("#42:auth.ts:30");
-    expect(r).toEqual({ index: 42, pathPattern: "auth.ts", full: false, offset: 30, limit: undefined });
+    expect(r).toEqual({
+      index: 42,
+      pathPattern: "auth.ts",
+      full: false,
+      offset: 30,
+      limit: undefined,
+    });
   });
 
   it("parses #N:path:offset:limit", async () => {
     const { parseDrillDown } = await import("../src/core/drill-down.js");
     const r = parseDrillDown("#42:auth.ts:30:20");
-    expect(r).toEqual({ index: 42, pathPattern: "auth.ts", full: false, offset: 30, limit: 20 });
+    expect(r).toEqual({
+      index: 42,
+      pathPattern: "auth.ts",
+      full: false,
+      offset: 30,
+      limit: 20,
+    });
   });
 
   it("parses #N:path:full still works", async () => {
     const { parseDrillDown } = await import("../src/core/drill-down.js");
     const r = parseDrillDown("#42:auth.ts:full");
-    expect(r).toEqual({ index: 42, pathPattern: "auth.ts", full: true, offset: undefined, limit: undefined });
+    expect(r).toEqual({
+      index: 42,
+      pathPattern: "auth.ts",
+      full: true,
+      offset: undefined,
+      limit: undefined,
+    });
   });
 
   it("parses plain #N:path still works", async () => {
     const { parseDrillDown } = await import("../src/core/drill-down.js");
     const r = parseDrillDown("#42:auth.ts");
-    expect(r).toEqual({ index: 42, pathPattern: "auth.ts", full: false, offset: undefined, limit: undefined });
+    expect(r).toEqual({
+      index: 42,
+      pathPattern: "auth.ts",
+      full: false,
+      offset: undefined,
+      limit: undefined,
+    });
   });
 
   it("parses #N:file:0 — offset 0 from start", async () => {
     const { parseDrillDown } = await import("../src/core/drill-down.js");
     const r = parseDrillDown("#42:file:0");
-    expect(r).toEqual({ index: 42, pathPattern: "file", full: false, offset: 0, limit: undefined });
+    expect(r).toEqual({
+      index: 42,
+      pathPattern: "file",
+      full: false,
+      offset: 0,
+      limit: undefined,
+    });
   });
 });
 
@@ -389,7 +422,9 @@ describe("expandEntryFile with offset/limit", () => {
     const dir = mkdtempSync(join(tmpdir(), "drilldown-offset-"));
     const file = join(dir, "session.jsonl");
     try {
-      const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join(
+        "\n",
+      );
       const session = [
         JSON.stringify({
           type: "message",
@@ -428,7 +463,9 @@ describe("expandEntryFile with offset/limit", () => {
     const dir = mkdtempSync(join(tmpdir(), "drilldown-win-"));
     const file = join(dir, "session.jsonl");
     try {
-      const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join("\n");
+      const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join(
+        "\n",
+      );
       const session = [
         JSON.stringify({
           type: "message",
@@ -469,7 +506,9 @@ describe("expandEntryFile with offset/limit", () => {
     const dir = mkdtempSync(join(tmpdir(), "drilldown-full-over-"));
     const file = join(dir, "session.jsonl");
     try {
-      const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join(
+        "\n",
+      );
       const session = [
         JSON.stringify({
           type: "message",

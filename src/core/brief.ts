@@ -21,12 +21,18 @@ const isNoiseUser = (text: string): boolean => {
 
 // Unicode-aware word segmentation via Intl.Segmenter with lazy init & fallback
 let _segmenter: Intl.Segmenter | null | undefined = undefined;
-const wordSegments = (text: string): Array<{ segment: string; index: number; isWordLike?: boolean }> => {
+const wordSegments = (
+  text: string,
+): Array<{ segment: string; index: number; isWordLike?: boolean }> => {
   // Available: fast path
   if (_segmenter) return Array.from(_segmenter.segment(text));
   // Fallback already established: don't retry the constructor
   if (_segmenter === null) {
-    const parts: Array<{ segment: string; index: number; isWordLike?: boolean }> = [];
+    const parts: Array<{
+      segment: string;
+      index: number;
+      isWordLike?: boolean;
+    }> = [];
     let idx = 0;
     for (const part of text.split(/(\s+)/)) {
       if (!part) continue;
@@ -41,7 +47,11 @@ const wordSegments = (text: string): Array<{ segment: string; index: number; isW
     return Array.from(_segmenter.segment(text));
   } catch {
     _segmenter = null; // permanently fallback
-    const parts: Array<{ segment: string; index: number; isWordLike?: boolean }> = [];
+    const parts: Array<{
+      segment: string;
+      index: number;
+      isWordLike?: boolean;
+    }> = [];
     let idx = 0;
     for (const part of text.split(/(\s+)/)) {
       if (!part) continue;
@@ -58,19 +68,105 @@ const isWord = (seg: { segment: string; isWordLike?: boolean }): boolean =>
 
 // Common stop words — don't count toward budget
 const STOP_WORDS = new Set([
-  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-  "have", "has", "had", "do", "does", "did", "will", "would", "could",
-  "should", "may", "might", "shall", "can", "need", "must",
-  "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
-  "into", "through", "during", "before", "after", "above", "below",
-  "between", "under", "over",
-  "and", "but", "or", "nor", "not", "so", "yet", "both", "either",
-  "neither", "each", "every", "all", "any", "few", "more", "most",
-  "other", "some", "such", "no",
-  "that", "this", "these", "those", "it", "its",
-  "i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
-  "she", "her", "they", "them", "their", "who", "which", "what",
-  "if", "then", "than", "when", "where", "how", "just", "also",
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "shall",
+  "can",
+  "need",
+  "must",
+  "to",
+  "of",
+  "in",
+  "for",
+  "on",
+  "with",
+  "at",
+  "by",
+  "from",
+  "as",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "between",
+  "under",
+  "over",
+  "and",
+  "but",
+  "or",
+  "nor",
+  "not",
+  "so",
+  "yet",
+  "both",
+  "either",
+  "neither",
+  "each",
+  "every",
+  "all",
+  "any",
+  "few",
+  "more",
+  "most",
+  "other",
+  "some",
+  "such",
+  "no",
+  "that",
+  "this",
+  "these",
+  "those",
+  "it",
+  "its",
+  "i",
+  "me",
+  "my",
+  "we",
+  "our",
+  "you",
+  "your",
+  "he",
+  "him",
+  "his",
+  "she",
+  "her",
+  "they",
+  "them",
+  "their",
+  "who",
+  "which",
+  "what",
+  "if",
+  "then",
+  "than",
+  "when",
+  "where",
+  "how",
+  "just",
+  "also",
 ]);
 
 const truncateTokens = (text: string, limit: number): string => {
@@ -96,12 +192,17 @@ const truncateTokens = (text: string, limit: number): string => {
 const BASH_CAP = 120;
 // Only strip pure-formatting pipe tails (head/tail for truncation, sort/wc/column for display).
 // awk/python3/node/bun are data-processing commands — their output carries semantic meaning.
-const PIPE_TAIL_RE = /\s*\|\s*(?:head|tail|sort|wc|column|tr|cut|uniq)(?:\s[^|]*)?$/;
+const PIPE_TAIL_RE =
+  /\s*\|\s*(?:head|tail|sort|wc|column|tr|cut|uniq)(?:\s[^|]*)?$/;
 
 /** Semantic compression: strip cd prefix, pipe tail formatting, cap length */
 const compressBash = (raw: string): string => {
   // Flatten multi-line: join lines with semicolons
-  let cmd = raw.split("\n").map(l => l.trim()).filter(Boolean).join("; ");
+  let cmd = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("; ");
   // Strip cd <path> && prefix
   cmd = cmd.replace(/^cd\s+\S+\s*&&\s*/, "");
   // Strip pipe tail formatting commands (up to 10 iterations, stop when stable)
@@ -122,9 +223,14 @@ const compressBash = (raw: string): string => {
 // ── tool summary ──
 
 const TOOL_SUMMARY_FIELDS: Record<string, string> = {
-  Read: "file_path", Edit: "file_path", Write: "file_path",
-  read: "path", edit: "path", write: "path",
-  Glob: "pattern", Grep: "pattern",
+  Read: "file_path",
+  Edit: "file_path",
+  Write: "file_path",
+  read: "path",
+  edit: "path",
+  write: "path",
+  Glob: "pattern",
+  Grep: "pattern",
 };
 
 const toolOneLiner = (name: string, args: Record<string, unknown>): string => {
@@ -245,14 +351,21 @@ export const buildBriefSections = (blocks: NormalizedBlock[]): BriefLine[] => {
     if (sec.header !== "[assistant]") continue;
     const out: string[] = [];
     for (const line of sec.lines) {
-      if (!line.startsWith("* ")) { out.push(line); continue; }
+      if (!line.startsWith("* ")) {
+        out.push(line);
+        continue;
+      }
       const ref = line.match(/\(#(\d+)\)$/)?.[1] ?? "";
       const base = ref ? line.slice(0, -(ref.length + 3)).trimEnd() : line;
       const last = out.length > 0 ? out[out.length - 1] : "";
       const m = last.match(/^(.*) \((#[\d, #]+)\) x(\d+)$/);
       if (m && m[1] === base) {
-        out[out.length - 1] = `${base} (${m[2]}, #${ref}) x${parseInt(m[3]) + 1}`;
-      } else if (last.match(/\(#\d+\)$/) && last.replace(/\s*\(#\d+\)$/, "") === base) {
+        out[out.length - 1] =
+          `${base} (${m[2]}, #${ref}) x${parseInt(m[3]) + 1}`;
+      } else if (
+        last.match(/\(#\d+\)$/) &&
+        last.replace(/\s*\(#\d+\)$/, "") === base
+      ) {
         const prevRef = last.match(/\(#(\d+)\)$/)?.[1];
         out[out.length - 1] = `${base} (#${prevRef}, #${ref}) x2`;
       } else {
@@ -304,7 +417,13 @@ export const buildBriefSections = (blocks: NormalizedBlock[]): BriefLine[] => {
     const prevMatch = prev?.header.match(
       /^\[tool_error\]\s+(\S+?)\s*\(((?:#\d+(?:,\s*)?)+)\)(?:\s*x(\d+))?$/,
     );
-    if (prev && prevMatch && prevMatch[1] === tool && prev.lines.length === 1 && prev.lines[0] === body) {
+    if (
+      prev &&
+      prevMatch &&
+      prevMatch[1] === tool &&
+      prev.lines.length === 1 &&
+      prev.lines[0] === body
+    ) {
       const refs = prevMatch[2] + (ref ? `, #${ref}` : "");
       const count = prevMatch[3] ? parseInt(prevMatch[3]) + 1 : 2;
       prev.header = `[tool_error] ${tool} (${refs}) x${count}`;
@@ -322,16 +441,19 @@ export const buildBriefSections = (blocks: NormalizedBlock[]): BriefLine[] => {
  * Stringify BriefLine sections into text format.
  */
 export const stringifyBrief = (sections: BriefLine[]): string => {
-
   // Emit sections -- suppress blank lines between consecutive tool/error summaries
   const out: string[] = [];
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
     if (i > 0) {
       const prev = sections[i - 1];
-      const prevIsToolLike = (prev.header === "[assistant]" && prev.lines.every((l) => l.startsWith("* "))) ||
+      const prevIsToolLike =
+        (prev.header === "[assistant]" &&
+          prev.lines.every((l) => l.startsWith("* "))) ||
         prev.header.startsWith("[tool_error]");
-      const curIsToolLike = (sec.header === "[assistant]" && sec.lines.every((l) => l.startsWith("* "))) ||
+      const curIsToolLike =
+        (sec.header === "[assistant]" &&
+          sec.lines.every((l) => l.startsWith("* "))) ||
         sec.header.startsWith("[tool_error]");
       if (!(prevIsToolLike && curIsToolLike)) {
         out.push("");
@@ -347,11 +469,15 @@ export const stringifyBrief = (sections: BriefLine[]): string => {
 };
 
 /** Parse a text line into a structured TranscriptEntry */
-const parseToolLine = (line: string): { tool: string; cmd?: string; ref?: string; count?: number } | null => {
+const parseToolLine = (
+  line: string,
+): { tool: string; cmd?: string; ref?: string; count?: number } | null => {
   // * bash "cmd" (#5)
   // * bash "cmd" (#1, #3) x2
   // * tilth "query" (#7)
-  const m = line.match(/^\* (\S+)\s*(?:"([^"]*)")?\s*(?:\((#[\d, #]+)\))?\s*(?:x(\d+))?$/);
+  const m = line.match(
+    /^\* (\S+)\s*(?:"([^"]*)")?\s*(?:\((#[\d, #]+)\))?\s*(?:x(\d+))?$/,
+  );
   if (!m) return null;
   return {
     tool: m[1],
@@ -370,7 +496,9 @@ const extractRef = (text: string): { clean: string; ref?: string } => {
 /**
  * Convert BriefLine sections to structured TranscriptEntry array for JSON output.
  */
-export const sectionsToTranscript = (sections: BriefLine[]): TranscriptEntry[] => {
+export const sectionsToTranscript = (
+  sections: BriefLine[],
+): TranscriptEntry[] => {
   const entries: TranscriptEntry[] = [];
 
   for (const sec of sections) {
@@ -394,7 +522,11 @@ export const sectionsToTranscript = (sections: BriefLine[]): TranscriptEntry[] =
           } else {
             // Fallback: unparseable tool line
             const { clean, ref } = extractRef(line.slice(2));
-            entries.push({ role: "assistant", text: clean, ...(ref && { ref }) });
+            entries.push({
+              role: "assistant",
+              text: clean,
+              ...(ref && { ref }),
+            });
           }
         } else {
           const { clean, ref } = extractRef(line);
@@ -403,7 +535,9 @@ export const sectionsToTranscript = (sections: BriefLine[]): TranscriptEntry[] =
       }
     } else if (sec.header.startsWith("[tool_error]")) {
       // [tool_error] bash (#5)
-      const headerMatch = sec.header.match(/^\[tool_error\]\s+(\S+)\s*(?:\(#(\d+)\))?/);
+      const headerMatch = sec.header.match(
+        /^\[tool_error\]\s+(\S+)\s*(?:\(#(\d+)\))?/,
+      );
       const tool = headerMatch?.[1] ?? "unknown";
       const ref = headerMatch?.[2] ? `#${headerMatch[2]}` : undefined;
       for (const line of sec.lines) {

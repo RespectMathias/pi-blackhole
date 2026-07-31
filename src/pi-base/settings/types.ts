@@ -15,7 +15,12 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import type {
+  Component,
+  KeybindingsManager,
+  OverlayOptions,
+  TUI,
+} from "@earendil-works/pi-tui";
 
 // ─────────────────────────────────────────────────────────────────────
 // Visibility context for visibleWhen
@@ -319,7 +324,12 @@ export interface FieldRenderer<F extends Field = Field, V = unknown> {
   /** Render the right-hand value cell for one row. */
   renderValue(
     row: FieldRow<F, V>,
-    args: { width: number; selected: boolean; isEditing: boolean; ctx: FieldRenderContext },
+    args: {
+      width: number;
+      selected: boolean;
+      isEditing: boolean;
+      ctx: FieldRenderContext;
+    },
   ): string;
   /** Footer-hint pieces shown when this row is focused. */
   hints(row: FieldRow<F, V>, args: { isEditing: boolean }): FieldKeyHint[];
@@ -331,7 +341,11 @@ export interface FieldRenderer<F extends Field = Field, V = unknown> {
   handleKey(
     row: FieldRow<F, V>,
     data: string,
-    args: { isEditing: boolean; ctx: FieldRenderContext; setEditing: (v: boolean) => void },
+    args: {
+      isEditing: boolean;
+      ctx: FieldRenderContext;
+      setEditing: (v: boolean) => void;
+    },
   ): FieldKeyResult<V>;
 }
 
@@ -413,7 +427,10 @@ export interface SettingsModalOptions<F extends Field = Field> {
    * full buffer (all field values, including untouched defaults) and
    * the chosen scope. May be async.
    */
-  onSave?: (values: Record<string, unknown>, scope: "global" | "project") => void | Promise<void>;
+  onSave?: (
+    values: Record<string, unknown>,
+    scope: "global" | "project",
+  ) => void | Promise<void>;
   /**
    * Called when the user discards buffered edits. The modal closes
    * immediately after.
@@ -432,7 +449,11 @@ export interface SettingsModalOptions<F extends Field = Field> {
    * with the reorderable ones do NOT participate and do NOT shift the
    * peer index.
    */
-  onReorder?: (info: { fieldKey: string; fromIndex: number; toIndex: number }) => void;
+  onReorder?: (info: {
+    fieldKey: string;
+    fromIndex: number;
+    toIndex: number;
+  }) => void;
   /**
    * Called once when the modal closes. Useful for fire-and-forget
    * cleanup (e.g. saving a debounced config).

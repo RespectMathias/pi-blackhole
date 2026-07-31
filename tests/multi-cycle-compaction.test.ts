@@ -4,10 +4,7 @@
  * Verifies that subsequent compaction cycles work correctly after previous
  * compactions have modified the branch. Covers T41–T44 from the design doc.
  */
-import { describe, test, expect, beforeEach, afterEach, afterAll, beforeAll, vi } from "vitest";
-import { existsSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, test, expect } from "vitest";
 
 import { buildOwnCut } from "../src/hooks/before-compact.js";
 
@@ -15,13 +12,20 @@ import { buildOwnCut } from "../src/hooks/before-compact.js";
 // Helpers (mirroring vcc-before-compact.test.ts)
 // ---------------------------------------------------------------------------
 
-const msg = (id: string, role: "user" | "assistant" | "toolResult", content = "x") => ({
-  id, type: "message",
+const msg = (
+  id: string,
+  role: "user" | "assistant" | "toolResult",
+  content = "x",
+) => ({
+  id,
+  type: "message",
   message: { role, content },
 });
 
 const comp = (id: string, firstKeptEntryId?: string) => ({
-  id, type: "compaction", firstKeptEntryId,
+  id,
+  type: "compaction",
+  firstKeptEntryId,
 });
 
 // ---------------------------------------------------------------------------
@@ -43,18 +47,18 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
         msg("m7", "user", "g"),
         msg("m8", "assistant", "h"),
       ],
-      "m5",           // Pi cut: keep m5+
+      "m5", // Pi cut: keep m5+
       "pi-default",
     );
     expect(cycle1.ok).toBe(true);
     if (!cycle1.ok) return;
-    expect(cycle1.messages).toHaveLength(4);  // m1,m2,m3,m4 compiled
+    expect(cycle1.messages).toHaveLength(4); // m1,m2,m3,m4 compiled
     expect(cycle1.firstKeptEntryId).toBe("m5");
     expect(cycle1.compactAll).toBe(false);
 
     // Simulate what Pi does after compaction: keep from firstKeptEntryId, add summary
     const afterCycle1 = [
-      comp("c1", "m5"),   // blackhole's compaction marker (not real pi format, but close enough)
+      comp("c1", "m5"), // blackhole's compaction marker (not real pi format, but close enough)
       msg("m5", "user", "e"),
       msg("m6", "assistant", "f"),
       msg("m7", "user", "g"),
@@ -72,7 +76,7 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
         msg("m11", "user", "k"),
         msg("m12", "assistant", "l"),
       ],
-      "m9",           // Pi cut: keep m9+
+      "m9", // Pi cut: keep m9+
       "pi-default",
     );
     expect(cycle2.ok).toBe(true);
@@ -98,12 +102,12 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
         msg("m15", "user", "o"),
         msg("m16", "assistant", "p"),
       ],
-      "m13",          // Pi cut: keep m13+
+      "m13", // Pi cut: keep m13+
       "pi-default",
     );
     expect(cycle3.ok).toBe(true);
     if (!cycle3.ok) return;
-    expect(cycle3.messages).toHaveLength(4);  // m9,m10,m11,m12 compiled
+    expect(cycle3.messages).toHaveLength(4); // m9,m10,m11,m12 compiled
     expect(cycle3.firstKeptEntryId).toBe("m13");
     expect(cycle3.compactAll).toBe(false);
 
@@ -113,11 +117,6 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
       ...cycle2.messages,
       ...cycle3.messages,
     ];
-    const allIds = allCompiled.map((m: any) => {
-      // Each message in the compiled set has { role, content }
-      // We need to trace back to which entry id it was
-      return null; // Not tracing IDs through compile(), just verifying no crash
-    });
     // The important thing: compile doesn't crash, result shapes are correct
     expect(allCompiled).toHaveLength(12); // 4 + 4 + 4
   });
@@ -132,7 +131,7 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
         msg("m3", "toolResult", "y"),
         msg("m4", "assistant", "z"),
       ],
-      "m1",   // Pi cut at first message → nothing to compile → fall through to compact-all
+      "m1", // Pi cut at first message → nothing to compile → fall through to compact-all
       "pi-default",
     );
     expect(cycle1.ok).toBe(true);
@@ -146,7 +145,7 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
     const cycle2 = buildOwnCut(
       [
         msg("o1", "user", "old"),
-        comp("c1", ""),   // compact-all sentinel
+        comp("c1", ""), // compact-all sentinel
         msg("m5", "user", "new1"),
         msg("m6", "assistant", "reply1"),
         msg("m7", "user", "new2"),
@@ -154,7 +153,7 @@ describe("T41: 3 auto-compact cycles with pi-default", () => {
         msg("m9", "user", "new3"),
         msg("m10", "assistant", "reply3"),
       ],
-      "m7",   // Pi cut at m7
+      "m7", // Pi cut at m7
       "pi-default",
     );
     expect(cycle2.ok).toBe(true);
@@ -186,7 +185,7 @@ describe("T42: /blackhole after pi-default auto-compact", () => {
         msg("m7", "user", "g"),
         msg("m8", "assistant", "h"),
       ],
-      "m5",   // Pi cut at m5
+      "m5", // Pi cut at m5
       "pi-default",
     );
     expect(autoCompact.ok).toBe(true);
@@ -205,7 +204,7 @@ describe("T42: /blackhole after pi-default auto-compact", () => {
     // /blackhole uses minimal → finds last user (m7), compiles everything before
     const manualCompact = buildOwnCut(
       afterAuto,
-      "m5",   // Pi cut ignored in minimal mode
+      "m5", // Pi cut ignored in minimal mode
       "minimal",
     );
     expect(manualCompact.ok).toBe(true);
@@ -224,7 +223,7 @@ describe("T42: /blackhole after pi-default auto-compact", () => {
         msg("m2", "assistant", "x"),
         msg("m3", "toolResult", "y"),
       ],
-      "m1",   // Pi cut at first message
+      "m1", // Pi cut at first message
       "pi-default",
     );
     expect(autoCompact.ok).toBe(true);
@@ -234,7 +233,7 @@ describe("T42: /blackhole after pi-default auto-compact", () => {
     // Simulate after compact-all, then more chat, then /blackhole
     const afterCompact = [
       msg("old1", "user", "old"),
-      comp("c1", ""),   // compact-all sentinel
+      comp("c1", ""), // compact-all sentinel
       msg("m1", "user", "a"),
       msg("m2", "assistant", "b"),
       msg("m3", "user", "c"),
@@ -244,7 +243,7 @@ describe("T42: /blackhole after pi-default auto-compact", () => {
     // /blackhole (minimal) with orphan recovery
     const r = buildOwnCut(
       afterCompact,
-      undefined,  // no Pi cut
+      undefined, // no Pi cut
       "minimal",
     );
     // Orphan recovery: collect after c1 → m1,m2,m3,m4
@@ -304,7 +303,7 @@ describe("T43: Switch tailBehavior mid-session", () => {
         msg("m4", "assistant", "d"),
       ],
       "m3",
-      "pi-default",  // effective tail behavior for auto
+      "pi-default", // effective tail behavior for auto
     );
     expect(autoResult.ok).toBe(true);
     if (!autoResult.ok) return;
@@ -321,7 +320,7 @@ describe("T43: Switch tailBehavior mid-session", () => {
         msg("m4", "assistant", "d"),
       ],
       "m3",
-      "minimal",  // effective tail behavior for /blackhole
+      "minimal", // effective tail behavior for /blackhole
     );
     expect(blackholeResult.ok).toBe(true);
     if (!blackholeResult.ok) return;
@@ -345,7 +344,7 @@ describe("T44: memory:false + auto-compact", () => {
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      "m3",   // Pi cut
+      "m3", // Pi cut
       "pi-default",
     );
     expect(r.ok).toBe(true);
@@ -363,10 +362,7 @@ describe("T44: memory:false + auto-compact", () => {
     // guard doesn't throw. The actual hook test already verifies this in T38.
 
     const r = buildOwnCut(
-      [
-        msg("m1", "user", "a"),
-        msg("m2", "assistant", "b"),
-      ],
+      [msg("m1", "user", "a"), msg("m2", "assistant", "b")],
       undefined,
       "minimal",
     );

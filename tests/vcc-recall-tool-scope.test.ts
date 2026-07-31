@@ -8,8 +8,16 @@ const makeSession = () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-vcc-recall-scope-"));
   const file = join(dir, "session.jsonl");
   const lines = [
-    JSON.stringify({ type: "message", id: "m1", message: { role: "user", content: "active lineage token" } }),
-    JSON.stringify({ type: "message", id: "m2", message: { role: "user", content: "off lineage secret" } }),
+    JSON.stringify({
+      type: "message",
+      id: "m1",
+      message: { role: "user", content: "active lineage token" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "m2",
+      message: { role: "user", content: "off lineage secret" },
+    }),
   ];
   writeFileSync(file, lines.join("\n") + "\n", "utf8");
   return { dir, file };
@@ -17,11 +25,19 @@ const makeSession = () => {
 
 const register = () => {
   let tool: any;
-  registerRecallTool({ registerTool: (t: any) => { tool = t; } } as any);
+  registerRecallTool({
+    registerTool: (t: any) => {
+      tool = t;
+    },
+  } as any);
   return tool;
 };
 
-const invoke = async (tool: any, file: string, params: Record<string, unknown>) => {
+const invoke = async (
+  tool: any,
+  file: string,
+  params: Record<string, unknown>,
+) => {
   const result = await tool.execute("tool-call", params, undefined, undefined, {
     sessionManager: {
       getSessionFile: () => file,
@@ -55,7 +71,9 @@ describe("vcc_recall scope", () => {
       const tool = register();
 
       const lineage = await invoke(tool, file, { expand: [1] });
-      expect(lineage).toContain("Cannot expand indices outside active lineage: 1");
+      expect(lineage).toContain(
+        "Cannot expand indices outside active lineage: 1",
+      );
 
       const all = await invoke(tool, file, { expand: [1], scope: "all" });
       expect(all).toContain("Scope: all");

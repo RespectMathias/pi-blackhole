@@ -27,10 +27,18 @@ export function shortPath(fullPath: string): string {
 // ── File indicator formatting ─────────────────────────────────────────────
 
 /** Render one file indicator line with shortened path. */
-function formatFileMatch(fm: FileMatch, index: number, isQuery: boolean): string {
+function formatFileMatch(
+  fm: FileMatch,
+  index: number,
+  isQuery: boolean,
+): string {
   const label = isQuery
-    ? (fm.lineCount === 1 ? "match" : "matches")
-    : (fm.lineCount === 1 ? "line" : "lines");
+    ? fm.lineCount === 1
+      ? "match"
+      : "matches"
+    : fm.lineCount === 1
+      ? "line"
+      : "lines";
   const displayPath = shortPath(fm.path);
   let line = `  [${fm.toolName}] ${displayPath} — ${fm.lineCount} ${label}    use #${index}:${fm.path}`;
   if (fm.snippet) {
@@ -61,9 +69,10 @@ export function formatTouchedOutput(
   const start = (currentPage - 1) * ps;
   const pageFiles = touched.slice(start, start + ps);
 
-  const header = totalPages > 1
-    ? `Page ${currentPage}/${totalPages} (${touched.length} total files)`
-    : `${touched.length} files touched`;
+  const header =
+    totalPages > 1
+      ? `Page ${currentPage}/${totalPages} (${touched.length} total files)`
+      : `${touched.length} files touched`;
 
   const lines = pageFiles.map((tf) => {
     const displayPath = shortPath(tf.path);

@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { renderMessage } from "../src/core/render-entries.js";
-import type { Message } from "@earendil-works/pi-ai";
-import { userMsg, assistantText, assistantWithToolCall, toolResult } from "./vcc-fixtures.js";
+import {
+  userMsg,
+  assistantText,
+  assistantWithToolCall,
+  toolResult,
+} from "./vcc-fixtures.js";
 
 describe("renderMessage", () => {
   it("renders user message", () => {
@@ -38,7 +42,11 @@ describe("renderMessage", () => {
   });
 
   it("renders bashExecution message", () => {
-    const msg = { role: "bashExecution", command: "ls -la", output: "total 0\n" } as any;
+    const msg = {
+      role: "bashExecution",
+      command: "ls -la",
+      output: "total 0\n",
+    } as any;
     const r = renderMessage(msg, 5);
     expect(r.role).toBe("bash");
     expect(r.summary).toContain("$ ls -la");
@@ -59,4 +67,3 @@ describe("renderMessage", () => {
     expect(r.summary).toBe("");
   });
 });
-

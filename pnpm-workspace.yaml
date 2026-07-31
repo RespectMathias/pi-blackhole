@@ -1,9 +1,9 @@
 allowBuilds:
-  '@google/genai': true
+  "@google/genai": true
   esbuild: true
   koffi: true
   protobufjs: true
 
 overrides:
   vite: 8.0.16
-  js-yaml: '>=4.2.0 <5.0.0'
+  js-yaml: ">=4.2.0 <5.0.0"

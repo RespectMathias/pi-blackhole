@@ -21,7 +21,12 @@ const defaultInfo = {
 
 describe("createStatusOverlay", () => {
   test("returns render, handleInput, invalidate, dispose", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     expect(overlay).toHaveProperty("render");
     expect(overlay).toHaveProperty("handleInput");
     expect(overlay).toHaveProperty("invalidate");
@@ -29,14 +34,24 @@ describe("createStatusOverlay", () => {
   });
 
   test("render returns lines with header", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("Blackhole Status"))).toBe(true);
   });
 
   test("render shows compaction config values", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const joined = overlay.render(80).join("\n");
     expect(joined).toContain("auto");
     expect(joined).toContain("blackhole");
@@ -44,7 +59,12 @@ describe("createStatusOverlay", () => {
   });
 
   test("render shows pipeline state", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const joined = overlay.render(80).join("\n");
     expect(joined).toContain("Compaction in flight");
     expect(joined).toContain("Consolidation in flight");
@@ -63,14 +83,24 @@ describe("createStatusOverlay", () => {
   });
 
   test("render shows actions section", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const joined = overlay.render(80).join("\n");
     expect(joined).toContain("Open configure overlay");
     expect(joined).toContain("Close");
   });
 
   test("down arrow navigates", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const linesBefore = overlay.render(80);
     overlay.handleInput("\x1b[B"); // down
     const linesAfter = overlay.render(80);
@@ -78,7 +108,12 @@ describe("createStatusOverlay", () => {
   });
 
   test("up arrow navigates", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     overlay.handleInput("\x1b[B"); // down
     overlay.handleInput("\x1b[B"); // down
     const linesDown = overlay.render(80);
@@ -87,25 +122,37 @@ describe("createStatusOverlay", () => {
     expect(linesUp.join("\n")).not.toBe(linesDown.join("\n"));
   });
 
-  test("escape closes with action close", () => new Promise<void>((done) => {
-    createStatusOverlay(defaultInfo, mockTheme, makeTui(), (result) => {
-      expect(result).toEqual({ action: "close" });
-      done();
-    }).handleInput("\x1b");
-  }));
+  test("escape closes with action close", () =>
+    new Promise<void>((done) => {
+      createStatusOverlay(defaultInfo, mockTheme, makeTui(), (result) => {
+        expect(result).toEqual({ action: "close" });
+        done();
+      }).handleInput("\x1b");
+    }));
 
-  test("enter on configure action returns configure", () => new Promise<void>((done) => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), (result) => {
-      expect(result).toEqual({ action: "configure" });
-      done();
-    });
-    // Navigate to "Open configure overlay" action (contiguous nav index 7)
-    for (let i = 0; i < 7; i++) overlay.handleInput("\x1b[B");
-    overlay.handleInput("\r"); // enter
-  }));
+  test("enter on configure action returns configure", () =>
+    new Promise<void>((done) => {
+      const overlay = createStatusOverlay(
+        defaultInfo,
+        mockTheme,
+        makeTui(),
+        (result) => {
+          expect(result).toEqual({ action: "configure" });
+          done();
+        },
+      );
+      // Navigate to "Open configure overlay" action (contiguous nav index 7)
+      for (let i = 0; i < 7; i++) overlay.handleInput("\x1b[B");
+      overlay.handleInput("\r"); // enter
+    }));
 
   test("invalidate clears cached lines", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     overlay.invalidate();
     const lines2 = overlay.render(80);
@@ -113,7 +160,12 @@ describe("createStatusOverlay", () => {
   });
 
   test("dispose does not throw", () => {
-    const overlay = createStatusOverlay(defaultInfo, mockTheme, makeTui(), () => {});
+    const overlay = createStatusOverlay(
+      defaultInfo,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     expect(() => overlay.dispose()).not.toThrow();
   });
 });

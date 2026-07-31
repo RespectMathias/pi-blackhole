@@ -34,15 +34,27 @@ const extractFilesFromContent = (content: Message["content"]): string[] => {
     .filter((p): p is string => p !== null);
 };
 
-export const renderMessage = (msg: Message, index: number, id: string, full = false): RenderedEntry => {
+export const renderMessage = (
+  msg: Message,
+  index: number,
+  id: string,
+  full = false,
+): RenderedEntry => {
   if (msg.role === "user") {
-    return { index, id, role: "user", summary: full ? textOf(msg.content) : clip(textOf(msg.content), 300) };
+    return {
+      index,
+      id,
+      role: "user",
+      summary: full ? textOf(msg.content) : clip(textOf(msg.content), 300),
+    };
   }
   if (msg.role === "toolResult") {
     const prefix = msg.isError ? "ERROR " : "";
     const text = full ? textOf(msg.content) : clip(textOf(msg.content), 200);
     return {
-      index, id, role: "tool_result",
+      index,
+      id,
+      role: "tool_result",
       summary: `${prefix}[${msg.toolName}] ${text}`,
     };
   }
@@ -58,7 +70,11 @@ export const renderMessage = (msg: Message, index: number, id: string, full = fa
   const tools = toolCalls(msg.content);
   const files = extractFilesFromContent(msg.content);
   const summary = tools ? `${tools}\n${text}` : text;
-  return { index, id, role: "assistant", summary, ...(files.length > 0 && { files }) };
+  return {
+    index,
+    id,
+    role: "assistant",
+    summary,
+    ...(files.length > 0 && { files }),
+  };
 };
-
-

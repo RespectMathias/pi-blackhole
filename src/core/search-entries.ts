@@ -81,21 +81,100 @@ const snippetRegex = (terms: string[]): RegExp => {
 // ── Stopwords for natural language queries ──
 const STOPWORDS = new Set([
   // English
-  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-  "have", "has", "had", "do", "does", "did", "will", "would", "could",
-  "should", "may", "might", "can", "shall", "of", "in", "to", "for",
-  "with", "on", "at", "from", "by", "as", "into", "through", "during",
-  "before", "after", "above", "below", "between", "out", "off", "over",
-  "under", "again", "further", "then", "once", "here", "there", "when",
-  "where", "why", "how", "all", "both", "each", "few", "more", "most",
-  "other", "some", "such", "no", "nor", "not", "only", "own", "same",
-  "so", "than", "too", "very", "just", "about", "it", "its", "that",
-  "this", "what", "which", "who", "whom", "these", "those",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "can",
+  "shall",
+  "of",
+  "in",
+  "to",
+  "for",
+  "with",
+  "on",
+  "at",
+  "from",
+  "by",
+  "as",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "between",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "further",
+  "then",
+  "once",
+  "here",
+  "there",
+  "when",
+  "where",
+  "why",
+  "how",
+  "all",
+  "both",
+  "each",
+  "few",
+  "more",
+  "most",
+  "other",
+  "some",
+  "such",
+  "no",
+  "nor",
+  "not",
+  "only",
+  "own",
+  "same",
+  "so",
+  "than",
+  "too",
+  "very",
+  "just",
+  "about",
+  "it",
+  "its",
+  "that",
+  "this",
+  "what",
+  "which",
+  "who",
+  "whom",
+  "these",
+  "those",
 ]);
 
 /** Remove stopwords, keep meaningful terms. */
 const filterStopwords = (terms: string[]): string[] => {
-  const meaningful = terms.filter((t) => !STOPWORDS.has(t.toLowerCase()) && t.length > 1);
+  const meaningful = terms.filter(
+    (t) => !STOPWORDS.has(t.toLowerCase()) && t.length > 1,
+  );
   // If all terms were stopwords, return original (don't lose everything)
   return meaningful.length > 0 ? meaningful : terms;
 };
@@ -120,8 +199,8 @@ const termFreq = (text: string, pattern: RegExp): number => {
 };
 
 interface BM25Context {
-  n: number;         // total docs
-  avgDl: number;     // average doc length (words)
+  n: number; // total docs
+  avgDl: number; // average doc length (words)
   df: Map<string, number>; // term -> number of docs containing it
 }
 
@@ -156,7 +235,9 @@ const bm25Score = (doc: string, terms: string[], ctx: BM25Context): number => {
     // IDF: log((N - df + 0.5) / (df + 0.5) + 1)
     const idf = Math.log((ctx.n - docFreq + 0.5) / (docFreq + 0.5) + 1);
     // TF saturation with length normalization
-    const tfNorm = (tf * (BM25_K + 1)) / (tf + BM25_K * (1 - BM25_B + BM25_B * dl / ctx.avgDl));
+    const tfNorm =
+      (tf * (BM25_K + 1)) /
+      (tf + BM25_K * (1 - BM25_B + (BM25_B * dl) / ctx.avgDl));
     score += idf * tfNorm;
   }
 
@@ -164,7 +245,11 @@ const bm25Score = (doc: string, terms: string[], ctx: BM25Context): number => {
 };
 
 /** Line-based snippet: ±contextLines around first regex match. */
-const lineSnippet = (text: string, regex: RegExp, contextLines = 2): string | undefined => {
+const lineSnippet = (
+  text: string,
+  regex: RegExp,
+  contextLines = 2,
+): string | undefined => {
   const lines = text.split("\n");
   let matchIdx = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -216,8 +301,10 @@ function extractToolCallText(args: Record<string, unknown>): string {
       }
     }
   }
-  if (typeof args.oldText === "string" && !Array.isArray(args.edits)) text += args.oldText + "\n";
-  if (typeof args.newText === "string" && !Array.isArray(args.edits)) text += args.newText + "\n";
+  if (typeof args.oldText === "string" && !Array.isArray(args.edits))
+    text += args.oldText + "\n";
+  if (typeof args.newText === "string" && !Array.isArray(args.edits))
+    text += args.newText + "\n";
   return text;
 }
 
@@ -247,12 +334,17 @@ export function getFileIndicators(msg: Message): FileMatch[] {
   return fileMatches;
 }
 
-function computeFileMatches(msg: Message | undefined, query: string): FileMatch[] {
+function computeFileMatches(
+  msg: Message | undefined,
+  query: string,
+): FileMatch[] {
   if (!msg?.content || typeof msg.content === "string") return [];
   const rawQuery = query.trim();
   const hasQuery = rawQuery.length > 0;
   if (!hasQuery) return getFileIndicators(msg as Message);
-  const regex = looksLikeRegex(rawQuery) ? safeRegex(rawQuery) : snippetRegex(rawQuery.split(/\s+/));
+  const regex = looksLikeRegex(rawQuery)
+    ? safeRegex(rawQuery)
+    : snippetRegex(rawQuery.split(/\s+/));
   const fileMatches: FileMatch[] = [];
 
   for (const part of msg.content) {

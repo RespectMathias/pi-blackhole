@@ -5,7 +5,8 @@ interface CommitInfo {
   message: string;
 }
 
-const COMMIT_MSG_RE = /git\s+commit[^\n]*?-m\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|\$?'((?:[^'\\]|\\.)*)')/;
+const COMMIT_MSG_RE =
+  /git\s+commit[^\n]*?-m\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|\$?'((?:[^'\\]|\\.)*)')/;
 // Match short hash from git output — only as fallback after bracket/range patterns fail.
 // Requires 8+ hex chars to reduce false positives from random hex in tool output.
 const HASH_RE = /\b([0-9a-f]{8,12})\b/;
@@ -61,7 +62,8 @@ export const extractCommits = (blocks: NormalizedBlock[]): CommitInfo[] => {
 
     // ── Case 1: tool_call (agent calls bash tool) ──
     if (b.kind === "tool_call" && b.name === "bash") {
-      const cmd = (b.args && typeof b.args.command === "string") ? b.args.command : "";
+      const cmd =
+        b.args && typeof b.args.command === "string" ? b.args.command : "";
       const message = tryExtractMessage(cmd);
       if (!message) continue;
 

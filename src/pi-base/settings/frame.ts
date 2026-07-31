@@ -28,7 +28,11 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 /** Default horizontal padding inside the frame, in columns. */
 export const DEFAULT_PADDING_X = 2;
@@ -54,7 +58,10 @@ export interface FrameOptions {
 }
 
 /** Width available to body content, given a frame's outer `width`. */
-export function frameContentWidth(width: number, paddingX: number = DEFAULT_PADDING_X): number {
+export function frameContentWidth(
+  width: number,
+  paddingX: number = DEFAULT_PADDING_X,
+): number {
   return Math.max(1, width - 2 - paddingX * 2);
 }
 
@@ -127,7 +134,10 @@ export function frame(
   const border = (s: string) => theme.fg("borderAccent", s);
 
   let body = lines;
-  if (options.fixedInnerRows !== undefined && body.length > options.fixedInnerRows) {
+  if (
+    options.fixedInnerRows !== undefined &&
+    body.length > options.fixedInnerRows
+  ) {
     const hidden = body.length - options.fixedInnerRows + 1;
     body = [
       ...body.slice(0, Math.max(0, options.fixedInnerRows - 1)),
@@ -137,7 +147,8 @@ export function frame(
 
   const blank = `${border("│")}${" ".repeat(inner)}${border("│")}`;
   const top = (): string => {
-    if (!options.title) return `${border("╭")}${border("─".repeat(inner))}${border("╮")}`;
+    if (!options.title)
+      return `${border("╭")}${border("─".repeat(inner))}${border("╮")}`;
     // Title pill: `── <title> ──`, truncated to fit; surrounded by border
     // dashes on both sides so the pill always reaches the corners.
     const titlePlain = ` ${truncateToWidth(options.title, Math.max(1, inner - 4), "…")} `;
@@ -179,5 +190,8 @@ export function responsiveInnerRows(
     minimum + FRAME_VERTICAL_CHROME,
     Math.floor(Math.max(1, terminalRows) * ratio),
   );
-  return Math.max(minimum, Math.min(preferred, available - FRAME_VERTICAL_CHROME));
+  return Math.max(
+    minimum,
+    Math.min(preferred, available - FRAME_VERTICAL_CHROME),
+  );
 }

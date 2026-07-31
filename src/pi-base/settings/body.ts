@@ -117,7 +117,10 @@ export function createSettingsModalBody<F extends Field>(
     const defs = options.defaults ?? {};
     const globalDir = options.globalConfigDir ?? getExtensionsDir();
     globalConfig = loadConfig(fn, defs, { configDir: globalDir });
-    projectConfig = loadConfig(fn, defs, { cwd: args.ctx.cwd, configDir: globalDir });
+    projectConfig = loadConfig(fn, defs, {
+      cwd: args.ctx.cwd,
+      configDir: globalDir,
+    });
   }
 
   let activeTabId: string | undefined = options.initialTab ?? tabs[0]?.id;
@@ -148,7 +151,9 @@ export function createSettingsModalBody<F extends Field>(
     }
 
     const labelText = truncateToWidth(field.label, LABEL_PAD_TARGET, "…");
-    const labelPadding = " ".repeat(Math.max(1, LABEL_PAD_TARGET - visibleWidth(labelText)));
+    const labelPadding = " ".repeat(
+      Math.max(1, LABEL_PAD_TARGET - visibleWidth(labelText)),
+    );
 
     return {
       field,
@@ -175,7 +180,8 @@ export function createSettingsModalBody<F extends Field>(
         }
       },
       isEditing: false,
-      searchIndex: `${field.label}\n${field.description ?? ""}\n${field.key}`.toLowerCase(),
+      searchIndex:
+        `${field.label}\n${field.description ?? ""}\n${field.key}`.toLowerCase(),
       labelText,
       labelPadding,
     };
@@ -196,18 +202,24 @@ export function createSettingsModalBody<F extends Field>(
       const gVal = row.globalValue;
       initialGlobalValues.set(
         row.field.key,
-        typeof gVal === "object" && gVal !== null ? JSON.parse(JSON.stringify(gVal)) : gVal,
+        typeof gVal === "object" && gVal !== null
+          ? JSON.parse(JSON.stringify(gVal))
+          : gVal,
       );
       const pVal = row.projectValue;
       initialProjectValues.set(
         row.field.key,
-        typeof pVal === "object" && pVal !== null ? JSON.parse(JSON.stringify(pVal)) : pVal,
+        typeof pVal === "object" && pVal !== null
+          ? JSON.parse(JSON.stringify(pVal))
+          : pVal,
       );
     }
   }
 
   function getInitialValues() {
-    return activeTabId === "project" ? initialProjectValues : initialGlobalValues;
+    return activeTabId === "project"
+      ? initialProjectValues
+      : initialGlobalValues;
   }
 
   function getDirtyKeys() {
@@ -220,11 +232,11 @@ export function createSettingsModalBody<F extends Field>(
   let submenu: Component | undefined;
   let submenuKey: string | undefined;
   let confirmState: ConfirmSubmenuState | undefined;
-  let scopeActionConfirm: { action: "reset" | "delete"; selectedIndex: number } | undefined;
+  let scopeActionConfirm:
+    { action: "reset" | "delete"; selectedIndex: number } | undefined;
   // Scope default inferred once at mount via the extension's callback.
-  const defaultScope: "global" | "project" = (options.inferDefaultScope?.() ?? "global") as
-    | "global"
-    | "project";
+  const defaultScope: "global" | "project" = (options.inferDefaultScope?.() ??
+    "global") as "global" | "project";
 
   const fieldRenderContext: FieldRenderContext & {
     editStates: Map<string, InlineEditState>;
@@ -243,7 +255,8 @@ export function createSettingsModalBody<F extends Field>(
       actionRows.push({
         id: "reset",
         label: "Reset to defaults",
-        description: "Remove all config keys for this scope — values fall back to defaults.",
+        description:
+          "Remove all config keys for this scope — values fall back to defaults.",
       });
     }
     if (options.onDeleteScope) {
@@ -260,7 +273,10 @@ export function createSettingsModalBody<F extends Field>(
   // and search filtering loops.
   let cachedVisibleIndices: number[] = [];
 
-  function buildVisibilityContext(_field: Field, scope: string): VisibilityContext {
+  function buildVisibilityContext(
+    _field: Field,
+    scope: string,
+  ): VisibilityContext {
     return {
       get: (key: string) => {
         const r = rows.find((rr) => rr.field.key === key);
@@ -296,7 +312,8 @@ export function createSettingsModalBody<F extends Field>(
       // visibleWhen: fields can conditionally hide based on sibling values
       if (row.field.visibleWhen) {
         const scope = activeTabId ?? "global";
-        if (!row.field.visibleWhen(buildVisibilityContext(row.field, scope))) continue;
+        if (!row.field.visibleWhen(buildVisibilityContext(row.field, scope)))
+          continue;
       }
       if (!query) {
         out.push(i);
@@ -316,9 +333,13 @@ export function createSettingsModalBody<F extends Field>(
 
   function clampSelection(visibleRows: number): void {
     const count = totalVisibleItems();
-    fieldSelected = Math.max(0, Math.min(fieldSelected, Math.max(0, count - 1)));
+    fieldSelected = Math.max(
+      0,
+      Math.min(fieldSelected, Math.max(0, count - 1)),
+    );
     if (fieldSelected < scroll) scroll = fieldSelected;
-    else if (fieldSelected >= scroll + visibleRows) scroll = fieldSelected - visibleRows + 1;
+    else if (fieldSelected >= scroll + visibleRows)
+      scroll = fieldSelected - visibleRows + 1;
     scroll = Math.max(0, Math.min(scroll, Math.max(0, count - visibleRows)));
   }
 
@@ -367,7 +388,11 @@ export function createSettingsModalBody<F extends Field>(
     }
 
     try {
-      const ret = options.onChange?.(row.field.key as never, value as never, row.field as never);
+      const ret = options.onChange?.(
+        row.field.key as never,
+        value as never,
+        row.field as never,
+      );
       if (ret && typeof (ret as Promise<void>).then === "function") {
         // Async onChange: dirty state is already set above. On
         // rejection, roll the row back and re-sync dirty state.
@@ -399,7 +424,9 @@ export function createSettingsModalBody<F extends Field>(
   }
 
   function mountSubmenu(
-    factory: NonNullable<ReturnType<(typeof RENDERERS)[Field["type"]]["handleKey"]>["submenu"]>,
+    factory: NonNullable<
+      ReturnType<(typeof RENDERERS)[Field["type"]]["handleKey"]>["submenu"]
+    >,
     row: InternalRow,
   ): void {
     submenu = factory((value) => {
@@ -496,7 +523,9 @@ export function createSettingsModalBody<F extends Field>(
     // callers that interleave non-reorderable rows (e.g. a Separator
     // field at the bottom of a Layout tab) still receive contiguous
     // 0..N-1 positions matching their own data structure.
-    const reorderablePeerIdxs = indices.filter((i) => rows[i]?.field.reorderable);
+    const reorderablePeerIdxs = indices.filter(
+      (i) => rows[i]?.field.reorderable,
+    );
     const fromPeerPos = reorderablePeerIdxs.indexOf(focusedIdx);
     const toPeerPos = reorderablePeerIdxs.indexOf(targetIdx);
 
@@ -531,7 +560,8 @@ export function createSettingsModalBody<F extends Field>(
     const out: Record<string, unknown> = {};
     for (const row of rows) {
       if (useScopeTabs) {
-        out[row.field.key] = scope === "project" ? row.projectValue : row.globalValue;
+        out[row.field.key] =
+          scope === "project" ? row.projectValue : row.globalValue;
       } else {
         out[row.field.key] = row.value;
       }
@@ -547,7 +577,10 @@ export function createSettingsModalBody<F extends Field>(
       // synchronously so synchronous callers (e.g. tests) don't need
       // to flush microtasks.
       const maybeThenable = result as unknown;
-      if (maybeThenable && typeof (maybeThenable as Promise<void>).then === "function") {
+      if (
+        maybeThenable &&
+        typeof (maybeThenable as Promise<void>).then === "function"
+      ) {
         await (maybeThenable as Promise<void>);
       }
       args.close();
@@ -566,7 +599,10 @@ export function createSettingsModalBody<F extends Field>(
     }
     if (matchesKey(data, "down")) {
       const count = confirmOptions.length;
-      confirmState.selectedIndex = Math.min(count - 1, confirmState.selectedIndex + 1);
+      confirmState.selectedIndex = Math.min(
+        count - 1,
+        confirmState.selectedIndex + 1,
+      );
       args.tui.requestRender();
       return;
     }
@@ -617,12 +653,22 @@ export function createSettingsModalBody<F extends Field>(
     lines.push("");
     const needsReload = Array.from(confirmState!.dirtyKeys).some((key) => {
       const row = rows.find((r) => r.field.key === key);
-      return (row?.field as { requiresReload?: boolean } | undefined)?.requiresReload === true;
+      return (
+        (row?.field as { requiresReload?: boolean } | undefined)
+          ?.requiresReload === true
+      );
     });
     if (needsReload) {
-      lines.push(args.theme.fg("muted", "  Some changes require /reload to take effect."));
+      lines.push(
+        args.theme.fg(
+          "muted",
+          "  Some changes require /reload to take effect.",
+        ),
+      );
     }
-    lines.push(args.theme.fg("muted", "  ↑↓ select  enter confirm  esc cancel"));
+    lines.push(
+      args.theme.fg("muted", "  ↑↓ select  enter confirm  esc cancel"),
+    );
 
     return lines;
   }
@@ -630,13 +676,19 @@ export function createSettingsModalBody<F extends Field>(
   function handleScopeActionConfirmInput(data: string): void {
     if (!scopeActionConfirm) return;
     if (matchesKey(data, "up")) {
-      scopeActionConfirm.selectedIndex = Math.max(0, scopeActionConfirm.selectedIndex - 1);
+      scopeActionConfirm.selectedIndex = Math.max(
+        0,
+        scopeActionConfirm.selectedIndex - 1,
+      );
       args.tui.requestRender();
       return;
     }
     if (matchesKey(data, "down")) {
       const max = 2; // global, project, cancel
-      scopeActionConfirm.selectedIndex = Math.min(max, scopeActionConfirm.selectedIndex + 1);
+      scopeActionConfirm.selectedIndex = Math.min(
+        max,
+        scopeActionConfirm.selectedIndex + 1,
+      );
       args.tui.requestRender();
       return;
     }
@@ -689,7 +741,9 @@ export function createSettingsModalBody<F extends Field>(
     }
 
     lines.push("");
-    lines.push(args.theme.fg("muted", "  ↑↓ select  enter confirm  esc cancel"));
+    lines.push(
+      args.theme.fg("muted", "  ↑↓ select  enter confirm  esc cancel"),
+    );
     return lines;
   }
 
@@ -743,7 +797,9 @@ export function createSettingsModalBody<F extends Field>(
           const def = row.field.default;
           if (def !== undefined) {
             const clonedDef =
-              typeof def === "object" && def !== null ? JSON.parse(JSON.stringify(def)) : def;
+              typeof def === "object" && def !== null
+                ? JSON.parse(JSON.stringify(def))
+                : def;
             commitValue(row, clonedDef);
           }
         }
@@ -765,7 +821,9 @@ export function createSettingsModalBody<F extends Field>(
           const def = row.field.default;
           if (def !== undefined) {
             const clonedDef =
-              typeof def === "object" && def !== null ? JSON.parse(JSON.stringify(def)) : def;
+              typeof def === "object" && def !== null
+                ? JSON.parse(JSON.stringify(def))
+                : def;
             commitValue(row, clonedDef);
           }
         }
@@ -896,7 +954,9 @@ export function createSettingsModalBody<F extends Field>(
         const def = row.field.default;
         if (def !== undefined) {
           const clonedDef =
-            typeof def === "object" && def !== null ? JSON.parse(JSON.stringify(def)) : def;
+            typeof def === "object" && def !== null
+              ? JSON.parse(JSON.stringify(def))
+              : def;
           commitValue(row, clonedDef);
           args.tui.requestRender();
           return;
@@ -938,7 +998,10 @@ export function createSettingsModalBody<F extends Field>(
     // Enter on a tab switches focus to field zone (tab already auto-switched).
     // Then lets Enter fall through to dispatchKey for field toggling/editing.
     // Enter on action row activates the focused action with confirmation.
-    if ((matchesKey(data, "enter") || matchesKey(data, "return")) && tabActionFocus >= 0) {
+    if (
+      (matchesKey(data, "enter") || matchesKey(data, "return")) &&
+      tabActionFocus >= 0
+    ) {
       if (tabActionFocus < tabs.length) {
         // Tab focused — return to field zone, then let Enter fall through
         // to dispatchKey for field toggling/editing.
@@ -950,7 +1013,8 @@ export function createSettingsModalBody<F extends Field>(
         const action = actionRows[actionIdx];
         if (action) {
           const act = action.id === "reset" ? "reset" : "delete";
-          const cb = act === "reset" ? options.onResetScope : options.onDeleteScope;
+          const cb =
+            act === "reset" ? options.onResetScope : options.onDeleteScope;
           if (cb) {
             mountScopeActionConfirm(act);
           }
@@ -1010,7 +1074,6 @@ export function createSettingsModalBody<F extends Field>(
     args.tui.requestRender();
   }
 
-
   function renderTabBar(width: number): string {
     if (tabs.length === 0) return "";
     const cells: string[] = [];
@@ -1033,10 +1096,14 @@ export function createSettingsModalBody<F extends Field>(
       }
       if (tab.id === activeTabId) {
         const padded = ` ▸ ${label} `;
-        cells.push(args.theme.fg("accent", args.theme.inverse(args.theme.bold(padded))));
+        cells.push(
+          args.theme.fg("accent", args.theme.inverse(args.theme.bold(padded))),
+        );
       } else {
         const padded = `   ${label} `;
-        cells.push(args.theme.bg("selectedBg", args.theme.fg("accent", padded)));
+        cells.push(
+          args.theme.bg("selectedBg", args.theme.fg("accent", padded)),
+        );
       }
     }
     return pad(cells.join(" "), width);
@@ -1118,7 +1185,11 @@ export function createSettingsModalBody<F extends Field>(
     return lines;
   }
 
-  function renderRow(row: InternalRow, width: number, isSelected: boolean): string {
+  function renderRow(
+    row: InternalRow,
+    width: number,
+    isSelected: boolean,
+  ): string {
     const labelText = row.labelText;
     // Per-field `dim` overrides the default focus-based coloring. The
     // override is binary — fields that opt in are saying "this row is
@@ -1129,7 +1200,13 @@ export function createSettingsModalBody<F extends Field>(
     const dimRaw = row.field.disabled ? true : row.field.dim;
     const dimFlag = typeof dimRaw === "function" ? dimRaw() : dimRaw;
     const labelColor =
-      dimFlag === true ? "muted" : dimFlag === false ? "text" : isSelected ? "text" : "muted";
+      dimFlag === true
+        ? "muted"
+        : dimFlag === false
+          ? "text"
+          : isSelected
+            ? "text"
+            : "muted";
     const label = args.theme.fg(labelColor, labelText);
     const renderer = rendererFor(row.field);
     const valueText = renderer.renderValue(
@@ -1143,7 +1220,9 @@ export function createSettingsModalBody<F extends Field>(
     );
     const padding = row.labelPadding;
     const depthIndent = "  ".repeat(row.field.depth ?? 0);
-    const prefix = isSelected ? args.theme.fg("accent", `${depthIndent}▌ `) : `${depthIndent}  `;
+    const prefix = isSelected
+      ? args.theme.fg("accent", `${depthIndent}▌ `)
+      : `${depthIndent}  `;
 
     // Scope note: when in a scope tab, show where the value originates
     // from (other scope or default). E.g. "(Global: on)" or "(default: 10)".
@@ -1160,7 +1239,9 @@ export function createSettingsModalBody<F extends Field>(
 
   function scopeNoteFor(row: InternalRow, scope: string): string | undefined {
     if (!useScopeTabs || !options.defaults) return undefined;
-    const defaultValue = (options.defaults as Record<string, unknown>)[row.field.key];
+    const defaultValue = (options.defaults as Record<string, unknown>)[
+      row.field.key
+    ];
     const gv = row.globalValue;
     const pv = row.projectValue;
     const format = (v: unknown): string => {
@@ -1196,13 +1277,18 @@ export function createSettingsModalBody<F extends Field>(
       lines.push("");
       lines.push(divider(width, args.theme));
     }
-    const visibleListRows = Math.max(3, innerRows - lines.length - 2 - estimateDescriptionRows());
+    const visibleListRows = Math.max(
+      3,
+      innerRows - lines.length - 2 - estimateDescriptionRows(),
+    );
     clampSelection(visibleListRows);
 
     const fieldCount = indices.length;
     const slice = indices.slice(scroll, scroll + visibleListRows);
     if (slice.length === 0) {
-      lines.push(args.theme.fg("muted", "  No matching settings. (press esc to clear)"));
+      lines.push(
+        args.theme.fg("muted", "  No matching settings. (press esc to clear)"),
+      );
     } else {
       if (scroll > 0) lines.push(args.theme.fg("dim", `  ↑ ${scroll} earlier`));
       for (const [visIdx, idx] of slice.entries()) {
@@ -1225,7 +1311,11 @@ export function createSettingsModalBody<F extends Field>(
     return lines;
   }
 
-  function renderFieldDesc(lines: string[], width: number, focused: InternalRow): void {
+  function renderFieldDesc(
+    lines: string[],
+    width: number,
+    focused: InternalRow,
+  ): void {
     let desc = focused.field.description ?? "";
     const field = focused.field;
     if (field.type === "number") {
@@ -1276,7 +1366,10 @@ export function createSettingsModalBody<F extends Field>(
     }
     if (vdText) {
       lines.push("");
-      for (const line of wrapLine(args.theme.fg("accent", vdText), Math.max(1, width - 4))) {
+      for (const line of wrapLine(
+        args.theme.fg("accent", vdText),
+        Math.max(1, width - 4),
+      )) {
         lines.push(`  ${line}`);
       }
     }
@@ -1302,7 +1395,11 @@ export function createSettingsModalBody<F extends Field>(
     if (focused.field.description) estimate = 2;
     const field = focused.field;
     if (field.type === "number") {
-      if (typeof field.min === "number" || typeof field.max === "number" || field.integer) {
+      if (
+        typeof field.min === "number" ||
+        typeof field.max === "number" ||
+        field.integer
+      ) {
         estimate = Math.max(estimate, 2);
       }
     }
@@ -1317,7 +1414,8 @@ export function createSettingsModalBody<F extends Field>(
     action: "reset" | "delete",
     scope: "global" | "project",
   ): Promise<void> {
-    const cb = action === "reset" ? options.onResetScope : options.onDeleteScope;
+    const cb =
+      action === "reset" ? options.onResetScope : options.onDeleteScope;
     if (!cb) return;
     try {
       await cb(scope);
@@ -1351,7 +1449,8 @@ export function createSettingsModalBody<F extends Field>(
     if (isBuffered) {
       const dk = scope === "project" ? dirtyProjectKeys : dirtyGlobalKeys;
       dk.clear();
-      const iv = scope === "project" ? initialProjectValues : initialGlobalValues;
+      const iv =
+        scope === "project" ? initialProjectValues : initialGlobalValues;
       for (const rr of rows) {
         const initVal = scope === "project" ? rr.projectValue : rr.globalValue;
         iv.set(
@@ -1367,7 +1466,11 @@ export function createSettingsModalBody<F extends Field>(
 
   return {
     render(width: number): string[] {
-      const inner = responsiveInnerRows(args.tui.terminal.rows ?? 24, PREFERRED_INNER_ROWS, 14);
+      const inner = responsiveInnerRows(
+        args.tui.terminal.rows ?? 24,
+        PREFERRED_INNER_ROWS,
+        14,
+      );
       if (submenu) {
         // Render the submenu inside the same frame so the popup chrome
         // doesn't change shape mid-flow.
@@ -1392,9 +1495,13 @@ export function createSettingsModalBody<F extends Field>(
       if (scopeActionConfirm) {
         const lines = renderScopeActionConfirm(frameContentWidth(width));
         const dialogTitle =
-          scopeActionConfirm.action === "reset" ? "Reset scope?" : "Delete config?";
+          scopeActionConfirm.action === "reset"
+            ? "Reset scope?"
+            : "Delete config?";
         const opts: FrameOptions = {
-          title: options.title ? `${options.title} — ${dialogTitle}` : dialogTitle,
+          title: options.title
+            ? `${options.title} — ${dialogTitle}`
+            : dialogTitle,
           fixedInnerRows: inner,
         };
         return frame(lines, width, args.theme, opts);
@@ -1410,8 +1517,13 @@ export function createSettingsModalBody<F extends Field>(
       const bodyInnerRows = inner - bottomSectionHeight;
       const bodyLines = renderBody(contentWidth, bodyInnerRows);
 
-      const dirtyDot = isBuffered && isDirty() ? ` ${args.theme.fg("accent", "● Unsaved")}` : "";
-      const title = options.title ? `${options.title}${dirtyDot}` : options.title;
+      const dirtyDot =
+        isBuffered && isDirty()
+          ? ` ${args.theme.fg("accent", "● Unsaved")}`
+          : "";
+      const title = options.title
+        ? `${options.title}${dirtyDot}`
+        : options.title;
 
       const frameLines = frame(bodyLines, width, args.theme, {
         title,
@@ -1441,13 +1553,22 @@ export function createSettingsModalBody<F extends Field>(
 
         const cells: string[] = [];
         for (let ai = 0; ai < actionRows.length; ai++) {
-          const isFocused = tabActionFocus >= tabs.length && tabActionFocus - tabs.length === ai;
+          const isFocused =
+            tabActionFocus >= tabs.length &&
+            tabActionFocus - tabs.length === ai;
           const keyHint = ai === 0 ? " [ctrl+shift+r]" : " [ctrl+shift+d]";
           const padded = ` ${actionRows[ai]!.label}${keyHint} `;
           if (isFocused) {
-            cells.push(args.theme.fg("accent", args.theme.inverse(args.theme.bold(padded))));
+            cells.push(
+              args.theme.fg(
+                "accent",
+                args.theme.inverse(args.theme.bold(padded)),
+              ),
+            );
           } else {
-            cells.push(args.theme.bg("selectedBg", args.theme.fg("accent", padded)));
+            cells.push(
+              args.theme.bg("selectedBg", args.theme.fg("accent", padded)),
+            );
           }
         }
         const line = pad(cells.join(" "), contentWidth);
@@ -1489,7 +1610,11 @@ function getNestedValue(obj: unknown, path: string): unknown {
   const parts = path.split(".");
   let current = obj;
   for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== "object") {
+    if (
+      current === null ||
+      current === undefined ||
+      typeof current !== "object"
+    ) {
       return undefined;
     }
     current = (current as Record<string, unknown>)[part];

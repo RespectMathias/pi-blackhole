@@ -1,7 +1,11 @@
 import { describe, test, expect } from "vitest";
 import { buildOwnCut } from "../src/hooks/before-compact.js";
 
-const msg = (id: string, role: "user" | "assistant" | "toolResult", content = "x") => ({
+const msg = (
+  id: string,
+  role: "user" | "assistant" | "toolResult",
+  content = "x",
+) => ({
   id,
   type: "message",
   message: { role, content },
@@ -14,7 +18,6 @@ const comp = (id: string, firstKeptEntryId?: string) => ({
 });
 
 describe("buildOwnCut", () => {
-
   // ── Phase 6: tailBehavior — Pi's cut support ──
 
   test("T19: tailBehavior pi-default with valid Pi cut — compile only removed portion", () => {
@@ -30,8 +33,8 @@ describe("buildOwnCut", () => {
         msg("m5", "user", "e"),
         msg("m6", "assistant", "f"),
       ],
-      "m3",           // piFirstKeptEntryId — Pi wants to keep m3+
-      "pi-default",   // tailBehavior
+      "m3", // piFirstKeptEntryId — Pi wants to keep m3+
+      "pi-default", // tailBehavior
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -44,11 +47,8 @@ describe("buildOwnCut", () => {
     // Pi's cut at first live message → nothing to compile → fall through
     // With only 2 live messages, the minimal path cancels via too_few_live_messages.
     const r = buildOwnCut(
-      [
-        msg("m1", "user", "a"),
-        msg("m2", "assistant", "b"),
-      ],
-      "m1",           // Pi cut at first message
+      [msg("m1", "user", "a"), msg("m2", "assistant", "b")],
+      "m1", // Pi cut at first message
       "pi-default",
     );
     expect(r.ok).toBe(false);
@@ -73,7 +73,7 @@ describe("buildOwnCut", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.firstKeptEntryId).toBe("m3"); // minimal cut at last user
-    expect(r.messages).toHaveLength(2);   // m1,m2 compiled
+    expect(r.messages).toHaveLength(2); // m1,m2 compiled
   });
 
   test("T21b: tailBehavior pi-default with non-message Pi cut — resolves to next message", () => {
@@ -83,13 +83,18 @@ describe("buildOwnCut", () => {
       [
         msg("m1", "user", "a"),
         msg("m2", "assistant", "b"),
-        { id: "om1", type: "custom", customType: "om.reflections.recorded", data: {} },
+        {
+          id: "om1",
+          type: "custom",
+          customType: "om.reflections.recorded",
+          data: {},
+        },
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
         msg("m5", "user", "e"),
         msg("m6", "assistant", "f"),
       ],
-      "om1",        // Pi cut at non-message entry
+      "om1", // Pi cut at non-message entry
       "pi-default",
     );
     expect(r.ok).toBe(true);
@@ -109,7 +114,7 @@ describe("buildOwnCut", () => {
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      undefined,    // no Pi cut
+      undefined, // no Pi cut
       "pi-default",
     );
     expect(r.ok).toBe(true);
@@ -127,7 +132,7 @@ describe("buildOwnCut", () => {
         msg("m3", "toolResult", "y"),
         msg("m4", "assistant", "z"),
       ],
-      "m1",    // Pi cut at first message
+      "m1", // Pi cut at first message
       "pi-default",
     );
     expect(r.ok).toBe(true);
@@ -146,7 +151,7 @@ describe("buildOwnCut", () => {
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      "m1",    // Pi cut at first live message
+      "m1", // Pi cut at first live message
       "pi-default",
     );
     expect(r.ok).toBe(false);
@@ -163,8 +168,8 @@ describe("buildOwnCut", () => {
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      "m1",         // Pi says keep m1+
-      "minimal",    // but /blackhole uses minimal
+      "m1", // Pi says keep m1+
+      "minimal", // but /blackhole uses minimal
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -178,13 +183,13 @@ describe("buildOwnCut", () => {
       [
         msg("o1", "user", "old"),
         msg("o2", "assistant", "old"),
-        comp("c1", ""),  // prior compact-all sentinel → would trigger orphan
+        comp("c1", ""), // prior compact-all sentinel → would trigger orphan
         msg("m1", "user", "a"),
         msg("m2", "assistant", "b"),
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      "m3",   // Pi's cut
+      "m3", // Pi's cut
       "pi-default",
     );
     expect(r.ok).toBe(true);
@@ -201,7 +206,7 @@ describe("buildOwnCut", () => {
         msg("m3", "user", "c"),
         msg("m4", "assistant", "d"),
       ],
-      undefined,    // pi cut ignored in minimal mode
+      undefined, // pi cut ignored in minimal mode
       "minimal",
     );
     expect(r.ok).toBe(true);
@@ -209,7 +214,6 @@ describe("buildOwnCut", () => {
     expect(r.firstKeptEntryId).toBe("m3");
     expect(r.messages).toHaveLength(2);
   });
-
 
   test("no prior compaction: cuts at last user message", () => {
     const r = buildOwnCut([

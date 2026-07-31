@@ -6,10 +6,24 @@
 
 import { join } from "node:path";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import type {
+  Component,
+  KeybindingsManager,
+  OverlayOptions,
+  TUI,
+} from "@earendil-works/pi-tui";
 import { createSettingsModalBody } from "./body";
-import { getExtensionsDir, readConfig, writeConfig, deleteConfig } from "../config.ts";
-import type { Field, SettingsModalFactory, SettingsModalOptions } from "./types";
+import {
+  getExtensionsDir,
+  readConfig,
+  writeConfig,
+  deleteConfig,
+} from "../config.ts";
+import type {
+  Field,
+  SettingsModalFactory,
+  SettingsModalOptions,
+} from "./types";
 
 const DEFAULT_OVERLAY: OverlayOptions = {
   anchor: "center",
@@ -70,9 +84,15 @@ export function createSettingsModal<F extends Field>(
     if (options.configFilename) {
       if (!options.onResetScope) {
         options.onResetScope = async (scope: "global" | "project") => {
-          const dir = scope === "project" ? join(ctx.cwd, ".pi") : (options.globalConfigDir ?? getExtensionsDir());
+          const dir =
+            scope === "project"
+              ? join(ctx.cwd, ".pi")
+              : (options.globalConfigDir ?? getExtensionsDir());
           const knownKeys = new Set(Object.keys(options.defaults ?? {}));
-          const existing = readConfig<Record<string, unknown>>(options.configFilename!, dir);
+          const existing = readConfig<Record<string, unknown>>(
+            options.configFilename!,
+            dir,
+          );
           const unknownKeys: Record<string, unknown> = {};
           if (existing && typeof existing === "object") {
             for (const [key, val] of Object.entries(existing)) {
@@ -88,7 +108,10 @@ export function createSettingsModal<F extends Field>(
       }
       if (!options.onDeleteScope) {
         options.onDeleteScope = async (scope: "global" | "project") => {
-          const dir = scope === "project" ? join(ctx.cwd, ".pi") : (options.globalConfigDir ?? getExtensionsDir());
+          const dir =
+            scope === "project"
+              ? join(ctx.cwd, ".pi")
+              : (options.globalConfigDir ?? getExtensionsDir());
           deleteConfig(options.configFilename!, dir);
         };
       }

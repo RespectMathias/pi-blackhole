@@ -10,7 +10,12 @@ import { booleanRenderer } from "./boolean";
 import { customRenderer } from "./custom";
 import { enumRenderer } from "./enum";
 import { modelRenderer } from "./model";
-import { numberRenderer, pathRenderer, secretRenderer, stringRenderer } from "./string";
+import {
+  numberRenderer,
+  pathRenderer,
+  secretRenderer,
+  stringRenderer,
+} from "./string";
 import { textRenderer } from "./text";
 
 export {

@@ -6,7 +6,5 @@
 import { scaffoldConfig } from "./unified-config.js";
 
 export function scaffoldSettings(): void {
-	scaffoldConfig();
+  scaffoldConfig();
 }
-
-

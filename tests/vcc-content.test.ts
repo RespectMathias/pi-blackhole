@@ -3,7 +3,7 @@
  * Changes: bun:test → vitest, added .js import extensions
  */
 import { describe, it, expect } from "vitest";
-import { textParts, textOf, clip, firstLine } from "../src/core/content.js";
+import { textParts, textOf } from "../src/core/content.js";
 
 describe("textParts", () => {
   it("returns [] for undefined content", () => {
@@ -78,9 +78,7 @@ describe("toolCallArgsText", () => {
         name: "edit",
         arguments: {
           path: "main.go",
-          edits: [
-            { oldText: "func old() {}", newText: "func new() {}" },
-          ],
+          edits: [{ oldText: "func old() {}", newText: "func new() {}" }],
         },
       },
     ];
@@ -157,17 +155,26 @@ describe("toolCallArgsText", () => {
 describe("isContentBearing", () => {
   it("returns true for args with path + content string", async () => {
     const { isContentBearing } = await import("../src/core/content.js");
-    expect(isContentBearing({ path: "auth.ts", content: "function login() {}" })).toBe(true);
+    expect(
+      isContentBearing({ path: "auth.ts", content: "function login() {}" }),
+    ).toBe(true);
   });
 
   it("returns true for args with path + edits array", async () => {
     const { isContentBearing } = await import("../src/core/content.js");
-    expect(isContentBearing({ path: "main.go", edits: [{ oldText: "a", newText: "b" }] })).toBe(true);
+    expect(
+      isContentBearing({
+        path: "main.go",
+        edits: [{ oldText: "a", newText: "b" }],
+      }),
+    ).toBe(true);
   });
 
   it("returns true for args with path + oldText/newText", async () => {
     const { isContentBearing } = await import("../src/core/content.js");
-    expect(isContentBearing({ path: "config.yaml", oldText: "a", newText: "b" })).toBe(true);
+    expect(
+      isContentBearing({ path: "config.yaml", oldText: "a", newText: "b" }),
+    ).toBe(true);
   });
 
   it("returns false for args without a path", async () => {
