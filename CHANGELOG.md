@@ -7,6 +7,7 @@
 ### Changed
 
 - **Custom provider streams discovered through pi's model registry.** ([#42](https://github.com/k0valik/pi-blackhole/pull/42), thanks @FelikZ) The bridge that lets OM agents (observer/reflector/dropper) use custom providers (e.g. claude-bridge) now captures `streamSimple` functions from pi's public registry API (`getRegisteredProviderIds`/`getRegisteredProviderConfig`) on every `agent_start`, instead of wrapping `pi.registerProvider` and reading the private `registeredProviders` field. Works regardless of extension load order and includes providers added after startup; the legacy discovery path remains available for older pi releases.
+- **Precompiled extension bundle for faster startup.** The extension now ships a prebuilt `dist/index.js` bundle (tsup/esbuild) instead of being transpiled file-by-file by jiti at startup — module loading drops from ~85 source files to a single ESM file, measured ~1.6–2× faster extension load. The `@earendil-works/pi-*` packages and `typebox` stay external and resolve to the host pi's copies at runtime via its loader aliases. `pnpm build` produces the bundle; `prepare` builds automatically on install. The package manifest points at `./dist/index.js` and falls back to `index.ts` (slow path) when `dist/` is absent, so a fresh checkout still works pre-build.
 
 ### Fixed
 
