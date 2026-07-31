@@ -27,7 +27,6 @@ export {
 };
 
 /** Map of field discriminator → renderer. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const RENDERERS: Record<Field["type"], FieldRenderer<any, any>> = {
   boolean: booleanRenderer,
   enum: enumRenderer,

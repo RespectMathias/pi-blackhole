@@ -322,7 +322,6 @@ export class ConfigManager<T extends object> {
       if (field.default === undefined) {
         const key = String(field.key);
         if (key in configDefaults) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (field as any).default = configDefaults[key];
         }
       }

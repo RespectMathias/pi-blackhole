@@ -548,7 +548,7 @@ export function createSettingsModalBody<F extends Field>(
       // to flush microtasks.
       const maybeThenable = result as unknown;
       if (maybeThenable && typeof (maybeThenable as Promise<void>).then === "function") {
-        (await maybeThenable) as Promise<void>;
+        await (maybeThenable as Promise<void>);
       }
       args.close();
     } catch (err) {
