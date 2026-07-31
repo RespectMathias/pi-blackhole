@@ -1,3 +1,11 @@
+## [0.4.2] - 2026-07-27
+
+### Changed
+
+- **`midRunCompaction` default changed from `"resume"` to `"off"`.** ([#40](https://github.com/k0valik/pi-blackhole/issues/40), thanks @daoguademeng) `ctx.compact()` aborts the active agent operation before compacting, which is not lifecycle-safe at `turn_end` for subagent/background-work extensions: it propagates through the shared `AbortSignal` and cannot be distinguished from user cancellation. This affects both parent-side subagent workflows (active/queued children aborted, parent stalled) and child-side nested sessions (runner terminated, orphan transcript continues, `blackhole-resume` resumes a session the parent already sees as completed). `off` defers compaction to `agent_end`, which is the only currently safe boundary for extension-owned work. `resume` and `pause` are preserved as explicit opt-in for users without subagent workflows.
+
+---
+
 ## [0.4.1] - 2026-07-24
 
 ### Added

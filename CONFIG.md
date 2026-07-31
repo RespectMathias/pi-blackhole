@@ -22,7 +22,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "compaction": "auto",           // "auto" | "manual" | "off"
   "compactionEngine": "blackhole", // "blackhole" | "pi-default"
   "tailBehavior": "minimal",   // "pi-default" | "minimal"
-  "midRunCompaction": "resume",   // "resume" | "pause" | "off"
+  "midRunCompaction": "off",   // "resume" | "pause" | "off" (default: off — unsafe with subagent workflows)
   "compactAfterTokens": 81000,    // Token threshold for auto-compaction
 
   // ── Observational Memory ──
@@ -150,22 +150,22 @@ Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
 
 | Value | Behavior |
 |-------|----------|
-| `"resume"` | Compact at threshold mid-run, then inject a resume message (`triggerTurn`) so the agent continues the task with the compacted context (default) |
+| `"resume"` | Compact at threshold mid-run, then inject a resume message (`triggerTurn`) so the agent continues the task with the compacted context (explicit opt-in — unsafe with subagent/background-work extensions) |
 | `"pause"` | Compact at threshold mid-run, but stop — the user continues manually |
-| `"off"` | No mid-run evaluation; threshold is only checked when the agent finishes a run (pre-0.5 behavior) |
+| `"off"` | No mid-run evaluation; threshold is only checked when the agent finishes a run (default — safe with subagent/background-work extensions) |
 
 **Why compaction interrupts the run:** Pi's `compact()` aborts the in-flight agent operation by design. `turn_end` is a clean boundary — all tool results of the turn are already persisted, so at most one just-started LLM call is wasted. With `"resume"`, the agent picks the task back up immediately; the compaction summary plus the kept tail (see `tailBehavior`) carry the task state across.
 
 **Re-trigger safety:** after a compaction, accumulated tokens are counted from the fresh compaction entry, so the threshold naturally resets — no compact/resume loops.
 
 ```jsonc
-// Compact mid-run and keep working (default)
+// Compact mid-run and keep working (explicit opt-in; unsafe with subagent workflows)
 { "midRunCompaction": "resume" }
 
 // Compact mid-run but hand control back to the user
 { "midRunCompaction": "pause" }
 
-// Old behavior: only evaluate when the run ends
+// Safe default: only evaluate when the run ends
 { "midRunCompaction": "off" }
 ```
 

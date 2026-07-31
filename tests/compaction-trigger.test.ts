@@ -487,8 +487,8 @@ describe("mid-run compaction trigger (turn_end)", () => {
 	});
 
 	it("M2: compacts immediately at threshold — no idle wait, agent is mid-run by definition", () => {
-		const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3 });
-		const ctx = fakeCtx([dueBranch]);
+	const { turnHandler, runtime } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "resume" });
+	const ctx = fakeCtx([dueBranch]);
 
 		turnHandler(turnEnd(), ctx);
 
@@ -498,10 +498,9 @@ describe("mid-run compaction trigger (turn_end)", () => {
 		expect(ctx.isIdle).not.toHaveBeenCalled();
 	});
 
-	it("M3: default mode is resume — onComplete injects a resume message with triggerTurn", () => {
-		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
+	it("M3: resume mode — onComplete injects a resume message with triggerTurn", () => {
+		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "resume" });
 		const ctx = fakeCtx([dueBranch]);
-
 		turnHandler(turnEnd(), ctx);
 		const options = ctx.compact.mock.calls[0][0];
 		options.onComplete({});
@@ -542,8 +541,8 @@ describe("mid-run compaction trigger (turn_end)", () => {
 	});
 
 	it("M6: onError clears compactInFlight, suspends further attempts, and still resumes (resume mode)", () => {
-		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
-		const ctx = fakeCtx([dueBranch]);
+	const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "resume" });
+	const ctx = fakeCtx([dueBranch]);
 
 		turnHandler(turnEnd(), ctx);
 		const options = ctx.compact.mock.calls[0][0];
@@ -646,9 +645,8 @@ describe("mid-run compaction trigger (turn_end)", () => {
 
 describe("mid-run compaction cancellation resilience", () => {
 	it("M15: cancelled compaction still resumes the agent and suspends further mid-run attempts", () => {
-		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
-		const ctx = fakeCtx([dueBranch, dueBranch]);
-
+	const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "resume" });
+	const ctx = fakeCtx([dueBranch, dueBranch]);
 		turnHandler(turnEnd(), ctx);
 		const options = ctx.compact.mock.calls[0][0];
 		// The before-compact hook cancelled (e.g. too few live messages).
@@ -666,8 +664,8 @@ describe("mid-run compaction cancellation resilience", () => {
 	});
 
 	it("M16: suspension clears once pressure drops below threshold (successful compaction elsewhere)", () => {
-		const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3 });
-		// Sequence: due (trigger+cancel) → due (suspended) → below (clears) → due (triggers again)
+	const { turnHandler, runtime, pi } = captureHandler({ compactAfterTokens: 3, midRunCompaction: "resume" });
+	// Sequence: due (trigger+cancel) → due (suspended) → below (clears) → due (triggers again)
 		const ctx = fakeCtx([dueBranch, dueBranch, belowBranch, dueBranch]);
 
 		turnHandler(turnEnd(), ctx);

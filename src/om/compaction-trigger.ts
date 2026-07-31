@@ -99,7 +99,7 @@ function handleTurnEnd(ctx: any, runtime: Runtime, pi: ExtensionAPI): void {
 	runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
 	const dbg = (ev: string, d?: Record<string, unknown>) => debugLog(ev, d, runtime.config.debugLog === true);
 
-	const mode = runtime.config.midRunCompaction ?? "resume";
+	const mode = runtime.config.midRunCompaction ?? "off";
 	if (mode === "off") {
 		dbg("compaction_trigger.turn_end.skip", { reason: "midRunCompaction_off" });
 		return;
