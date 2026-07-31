@@ -17,6 +17,10 @@
 
 - **Bumped `@earendil-works/pi-*` packages to `0.83.0`** (agent-core, ai, coding-agent, tui).
 
+### Packaging
+
+- **Tolerant `prepare` build hook.** The `prepare` script is now a dependency-free `node scripts/prepare.mjs` that builds `dist/` only when the toolchain is present, and otherwise skips silently — it can never abort an install for git/checkout consumers running npm, pnpm, or bun in any devDependency configuration. Husky hooks install best-effort (dev checkouts only). Registry installs are unaffected (npm/pnpm/bun never run `prepare` on registry packages).
+
 ---
 
 ## [0.4.2] - 2026-07-27

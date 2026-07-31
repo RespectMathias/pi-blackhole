@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm lint",
-    "prepare": "husky && pnpm build"
+    "prepare": "node scripts/prepare.mjs"
   },
   "keywords": [
     "pi-package",
