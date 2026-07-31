@@ -19,9 +19,14 @@
   ],
   "scripts": {
     "build": "tsup",
-    "prepare": "pnpm build",
-    "check": "tsc --noEmit",
-    "lint": "eslint src/"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm lint",
+    "prepare": "husky && pnpm build"
   },
   "keywords": [
     "pi-package",
@@ -66,6 +71,7 @@
     "husky": "9.1.7",
     "tsup": "^8.5.1",
     "lint-staged": "15.5.2",
+    "prettier": "3.9.6",
     "typebox": "1.1.38",
     "typescript": "5.9.3",
     "vitest": "4.1.9"

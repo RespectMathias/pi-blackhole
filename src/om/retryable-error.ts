@@ -18,23 +18,19 @@ export function isRetryableError(error: unknown): boolean {
   return RETRYABLE_ERROR_RE.test(message);
 }
 
-/**
- * Re-export Pi's context-overflow detection so blackhole callers use one
- * authoritative source instead of maintaining their own provider-specific patterns.
- * @see @earendil-works/pi-ai/dist/utils/overflow.d.ts
- */
-export { isContextOverflow } from "@earendil-works/pi-ai";
-
 /** Detect Pi's "extension ctx is stale" error from session replacement/reload.
  *  These are not model errors and must not be recorded as cooldowns. */
 export function isStaleExtensionContextError(error: unknown): boolean {
-	let message: string;
-	if (error instanceof Error) {
-		message = error.message;
-	} else if (error && typeof error === "object" && "message" in error) {
-		message = String((error as { message: unknown }).message);
-	} else {
-		message = String(error || "");
-	}
-	return message.includes("extension ctx is stale") || message.includes("ctx is stale");
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (error && typeof error === "object" && "message" in error) {
+    message = String((error as { message: unknown }).message);
+  } else {
+    message = String(error || "");
+  }
+  return (
+    message.includes("extension ctx is stale") ||
+    message.includes("ctx is stale")
+  );
 }
