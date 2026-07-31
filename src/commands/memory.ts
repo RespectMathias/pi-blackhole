@@ -24,6 +24,7 @@ import {
 	type Projection,
 } from "../om/ledger/index.js";
 import { readPendingState } from "../om/pending.js";
+import { isManualMode } from "../core/unified-config.js";
 
 function firstArg(args: unknown): string | undefined {
 	if (Array.isArray(args)) return typeof args[0] === "string" ? args[0] : undefined;
@@ -132,9 +133,9 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
 			let dropProgress = rawTokensSinceDropCoverage(entries);
 			const compactionProgress = rawTokensSinceLastCompaction(entries);
 
-			// In noAutoCompact mode, pending coversUpToId entries act as virtual coverage markers
+			// In manual mode, pending coversUpToId entries act as virtual coverage markers
 			// that aren't reflected in the branch. Adjust accumulated counts accordingly.
-			if (runtime.config.noAutoCompact) {
+			if (isManualMode(runtime.config)) {
 				const pending = readPendingState(sessionId);
 				if (pending.observation?.coversUpToId) {
 					const idx = entryIndexForId(entries, pending.observation.coversUpToId);
@@ -169,19 +170,19 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
 				`Observer:       ~${obsProgress.toLocaleString()} tokens (triggers at ${runtime.config.observeAfterTokens.toLocaleString()})`,
 				`Reflector:      ~${reflectionProgress.toLocaleString()} tokens (triggers at ${runtime.config.reflectAfterTokens.toLocaleString()})`,
 				`Dropper:        ~${dropProgress.toLocaleString()} tokens (triggers at ${runtime.config.reflectAfterTokens.toLocaleString()})`,
-				`Compaction:     ~${compactionProgress.toLocaleString()} tokens` + (runtime.config.noAutoCompact ? " [auto-disabled]" : ` (triggers at ${runtime.config.compactAfterTokens.toLocaleString()})`),
+				`Compaction:     ~${compactionProgress.toLocaleString()} tokens` + (isManualMode(runtime.config) ? " [manual]" : ` (triggers at ${runtime.config.compactAfterTokens.toLocaleString()})`),
 				`Obs pool:       ~${visibleObservationTokens.toLocaleString()} / ${runtime.config.observationsPoolMaxTokens.toLocaleString()} tokens (${pct(visibleObservationTokens, runtime.config.observationsPoolMaxTokens)}%)`,
 				`Reflect pool:   ~${visibleReflectionTokens.toLocaleString()} tokens`,
 			];
 
-			// Show pending data when noAutoCompact is active
-			if (runtime.config.noAutoCompact) {
+			// Show pending data when manual mode is active
+			if (isManualMode(runtime.config)) {
 				const pending = readPendingState(sessionId);
 				const hasObs = !!pending.observation;
 				const hasRef = !!pending.reflection;
 				const hasDrop = !!pending.dropped;
 				if (hasObs || hasRef || hasDrop) {
-					lines.push("", "── Pending (noAutoCompact) ──");
+					lines.push("", "── Pending (manual mode) ──");
 					if (hasObs) lines.push("Observation:  waiting in pending.json");
 					if (hasRef) lines.push("Reflection:   waiting in pending.json");
 					if (hasDrop) lines.push("Dropper:      waiting in pending.json");

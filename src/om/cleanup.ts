@@ -3,7 +3,7 @@
  * session JSONL files to find orphaned entries safe to delete.
  *
  * Per-session pending files under ~/.pi/agent/pi-blackhole/ accumulate when:
- * - compaction is set to "manual" (noAutoCompact legacy) — OM outputs are
+ * - compaction is set to "manual" — OM outputs are
  *   buffered rather than appended to the session
  * - sessions are forked, abandoned, or deleted — the pending files remain
  * - stale backup files (-pending.stale.json) persist after write-safe renames

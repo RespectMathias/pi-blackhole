@@ -286,9 +286,9 @@ describe("/blackhole-memory command", () => {
 		expect(msg).toContain("Usage:");
 	});
 
-	it("noAutoCompact shows auto-disabled marker and preamble cap info", async () => {
+	it("manual mode shows manual marker and preamble cap info", async () => {
 		const { pi, runtime, handlerMap } = createMockEnvironment();
-		runtime.config.noAutoCompact = true;
+		runtime.config.compaction = "manual";
 		registerMemoryCommand(pi as any, runtime as any);
 
 		const ui = { notify: vi.fn() };
@@ -303,7 +303,7 @@ describe("/blackhole-memory command", () => {
 		});
 
 		const msg = (ui.notify as any).mock.calls[0][0] as string;
-		expect(msg).toContain("auto-disabled");
+		expect(msg).toContain("[manual]");
 		// Pending section and Preamble cap only show when pending data exists on disk
 	});
 });

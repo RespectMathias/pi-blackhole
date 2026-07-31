@@ -278,7 +278,7 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
       customInstructions,
       isPiVcc: customInstructions === PI_VCC_COMPACT_INSTRUCTION,
       overrideDefaultCompaction: omRuntime.config.overrideDefaultCompaction,
-      noAutoCompact: omRuntime.config.noAutoCompact,
+      manualMode: omRuntime.config.compaction === "manual" || omRuntime.config.noAutoCompact === true,
       branchLength: branchEntries.length,
       hasPreviousSummary: !!preparation.previousSummary,
     });
@@ -313,8 +313,8 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI, omRuntime: Runtime) 
         return;
       }
 
-      if (omRuntime.config.noAutoCompact && !isPiVcc) {
-        trace("before_compact.cancel", { reason: "noAutoCompact and not /blackhole" });
+      if ((omRuntime.config.compaction === "manual" || omRuntime.config.noAutoCompact) && !isPiVcc) {
+        trace("before_compact.cancel", { reason: "manual mode and not /blackhole" });
         return { cancel: true };
       }
     }

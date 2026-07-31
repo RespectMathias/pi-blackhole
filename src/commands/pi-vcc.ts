@@ -3,7 +3,7 @@
  *
  * Upstream: https://github.com/sting8k/pi-vcc (src/commands/pi-vcc.ts)
  * Modified by pi-vcc-om:
- * - Flushes pending OM state (observations/reflections/dropped) when noAutoCompact is active
+ * - Flushes pending OM state (observations/reflections/dropped) when manual mode is active
  *   before triggering compaction, so the compaction summary includes all accumulated memory.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

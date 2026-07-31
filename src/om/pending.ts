@@ -1,12 +1,12 @@
 /**
  * Pending OM state persistence.
  *
- * When `noAutoCompact` is enabled, observations, reflections, and dropper
+ * When `compaction: "manual"` is enabled (or legacy `noAutoCompact`), observations, reflections, and dropper
  * results are saved to disk instead of being appended to the conversation.
  * Each new pipeline run replaces the previous result (latest subsumes earlier
  * since every run processes all entries since the last actual branch append).
  *
- * On manual `/pi-vcc` trigger, pending entries are flushed to the branch
+ * On manual `/blackhole` trigger, pending entries are flushed to the branch
  * and the file is cleared.
  *
  * Per-session files: each session gets its own <sessionId>-pending.json
@@ -41,18 +41,18 @@ export interface PendingOMState {
 	/** Latest dropper run (replaced each time, not accumulated). */
 	dropped?: PendingDropped;
 	/**
-	 * All observation batches accumulated across noAutoCompact pipeline runs.
+	 * All observation batches accumulated across manual mode pipeline runs.
 	 * Each batch preserves per-run coverage (coversUpToId) matching the normal
 	 * branch-marker pattern. Used for LLM context and /blackhole flush.
 	 */
 	observationBatches?: PendingObservation[];
 	/**
-	 * All reflection batches accumulated across noAutoCompact pipeline runs.
+	 * All reflection batches accumulated across manual mode pipeline runs.
 	 * Preserves per-run coverage for LLM context and /blackhole flush.
 	 */
 	reflectionBatches?: PendingReflection[];
 	/**
-	 * All dropper batches accumulated across noAutoCompact pipeline runs.
+	 * All dropper batches accumulated across manual mode pipeline runs.
 	 * Each batch preserves which observations were dropped in that run.
 	 * Without accumulation, earlier drops are lost when the next dropper
 	 * run overwrites pending.dropped, causing them to be "un-dropped" on

@@ -49,7 +49,7 @@ function autoCompactionSkipReason(runtime: Runtime): string | null {
 	// LEGACY: old config key guards — only apply when new keys are absent (unmigrated config)
 	if (runtime.config.compaction === undefined && runtime.config.compactionEngine === undefined) {
 		if (runtime.config.passive === true) return "passive";
-		if (runtime.config.noAutoCompact === true) return "noAutoCompact";
+		if (runtime.config.noAutoCompact === true) return "manual";
 		// Don't force Pi to compact unless the user explicitly opted into blackhole's pipeline.
 		if (runtime.config.overrideDefaultCompaction === false) return "overrideDefaultCompaction_false";
 	}
@@ -194,7 +194,7 @@ function handleAgentEnd(event: any, ctx: any, runtime: Runtime): void {
 		dbg("compaction_trigger.agent_end", {
 			passive: runtime.config.passive,
 			memory: runtime.config.memory,
-			noAutoCompact: runtime.config.noAutoCompact,
+			manualMode: runtime.config.compaction === "manual" || runtime.config.noAutoCompact === true,
 			overrideDefaultCompaction: runtime.config.overrideDefaultCompaction,
 			compactInFlight: runtime.compactInFlight,
 			compactAfterTokens: runtime.config.compactAfterTokens,

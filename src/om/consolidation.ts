@@ -29,6 +29,7 @@ import {
 	isObservationChunkPending,
 	PendingOMState,
 } from "./pending.js";
+import { isManualMode } from "../core/unified-config.js";
 import {
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
@@ -154,7 +155,7 @@ function mergeReflections(existing: Reflection[], additional: Reflection[]): Ref
 /**
  * Extract all pending observations from accumulated batches that were recorded
  * after a given coverage ID (e.g., the last reflection or drop coverage ID).
- * This is needed in noAutoCompact mode because the reflector/dropper may skip
+ * This is needed in manual mode (pending-based) because the reflector/dropper may skip
  * a pipeline cycle, leaving unprocessed batches in observationBatches that
  * should still be served as "new" on subsequent runs.
  */
@@ -467,7 +468,7 @@ function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: Conso
 	}
 	// In manual mode, the branch has no OM markers — pending state provides
 	// pool fullness and new‑data visibility for reflector/dropper checks.
-	const pending = runtime.config.noAutoCompact ? readPendingState(sessionId) : undefined;
+	const pending = isManualMode(runtime.config) ? readPendingState(sessionId) : undefined;
 	if (!anyStageDue(entries, runtime, pending)) return;
 
 	const runId = `consolidation-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
@@ -606,12 +607,12 @@ async function runObserverStage(
 	let priorReflections = memory.reflections.map(reflectionToSummaryLine);
 	let priorObservations = memory.observations.map(observationToSummaryLine);
 
-	// In noAutoCompact, append accumulated batch history to whatever
+	// In manual mode, append accumulated batch history to whatever
 	// fullProjection found in the branch (preserving pre-switch markers
-	// when transitioning from autoCompact to noAutoCompact mid-session).
+	// when transitioning from autoCompact to manual mode mid-session).
 	// The preamble is capped via observerPreambleMaxTokens so accumulated
 	// observations don't grow unbounded across turns.
-	if (runtime.config.noAutoCompact) {
+	if (isManualMode(runtime.config)) {
 		const pendingCtx = readPendingState(sessionId);
 		const accumulatedReflections = (pendingCtx.reflectionBatches ?? [])
 			.flatMap(b => (b.data as any).reflections ?? []);
@@ -633,8 +634,8 @@ async function runObserverStage(
 		];
 	}
 
-	// If noAutoCompact: skip if this exact chunk was already processed
-	if (runtime.config.noAutoCompact && isObservationChunkPending(sessionId, coversUpToId)) {
+	// If manual mode: skip if this exact chunk was already processed
+	if (isManualMode(runtime.config) && isObservationChunkPending(sessionId, coversUpToId)) {
 		debugLog("observer.pending_skip", { coversUpToId, sessionId });
 		return "continue";
 	}
@@ -643,9 +644,9 @@ async function runObserverStage(
 		const resolved = await resolveModel("observer");
 		if (!resolved) return "abort";
 
-		// Adjust accumulated for pending coverage in noAutoCompact mode
+		// Adjust accumulated for pending coverage in manual mode
 		let effectiveTokens = tokens;
-		if (runtime.config.noAutoCompact) {
+		if (isManualMode(runtime.config)) {
 			const pending = readPendingState(sessionId);
 			if (pending.observation?.coversUpToId) {
 				const idx = entryIndexForId(entries, pending.observation.coversUpToId);
@@ -688,7 +689,7 @@ async function runObserverStage(
 				const data = buildObservationsRecordedData(result.observations, coversUpToId);
 				if (!data) { runtime.advanceCursor("observer", coversUpToId, "empty"); return "continue"; }
 				debugLog("observer.records", { count: result.observations.length, observationTokens: result.observations.reduce((s: number, o: any) => s + o.tokenCount, 0), coversUpToId });
-				if (runtime.config.noAutoCompact) {
+				if (isManualMode(runtime.config)) {
 					savePendingObservation(sessionId, { coversUpToId, data });
 					debugLog("observer.pending", { count: result.observations.length, coversUpToId, sessionId });
 				} else {
@@ -770,7 +771,7 @@ async function runReflectorStage(
 	}
 	let reflectionTokens = 0;
 	let observationCoverageId: string | undefined;
-	if (runtime.config.noAutoCompact) {
+	if (isManualMode(runtime.config)) {
 		const pending = readPendingState(sessionId);
 		// Check any accumulated batch for unprocessed observations, not just the latest
 		const hasPendingObs = (pending.observationBatches ?? []).some((b: any) => (b.data as any)?.observations?.length);
@@ -802,7 +803,7 @@ async function runReflectorStage(
 
 		// Compute ahead for an accurate notification
 		const folded = foldLedger(entries);
-		const pending = runtime.config.noAutoCompact ? readPendingState(sessionId) : undefined;
+		const pending = isManualMode(runtime.config) ? readPendingState(sessionId) : undefined;
 		const lastReflectionIdx = pending ? -1 : latestCoverageIndex(entries, OM_REFLECTIONS_RECORDED);
 		const newObservations = pending
 			? pendingObservationsCreatedAfter(pending, entries, pending.reflection?.coversUpToId)
@@ -814,9 +815,9 @@ async function runReflectorStage(
 		);
 		const summaryBudget = Math.floor(runtime.config.reflectorInputMaxTokens * 0.15) * 2;
 		const reflectorInputTokens = Math.min(newItemsTokens + summaryBudget, runtime.config.reflectorInputMaxTokens);
-		// Adjust accumulated for pending coverage in noAutoCompact mode
+		// Adjust accumulated for pending coverage in manual mode
 		let effectiveReflectionTokens = reflectionTokens;
-		if (runtime.config.noAutoCompact) {
+		if (isManualMode(runtime.config)) {
 			if (pending?.reflection?.coversUpToId) {
 				const idx = entryIndexForId(entries, pending.reflection.coversUpToId);
 				if (idx >= 0) effectiveReflectionTokens = rawTokensAfterIndex(entries, idx);
@@ -843,7 +844,7 @@ async function runReflectorStage(
 
 		try {
 			// Existing memory summaries for context (capped).
-			// In noAutoCompact, merge accumulated pending batches with
+			// In manual mode, merge accumulated pending batches with
 			// branch data (preserving pre-switch markers).
 			const sourceReflections = pending
 				? [...folded.reflections, ...(pending.reflectionBatches ?? []).flatMap((b: any) => (b.data as any)?.reflections ?? [])]
@@ -886,7 +887,7 @@ async function runReflectorStage(
 				runtime.advanceCursor("reflector", observationCoverageId, "empty");
 				return { outcome: "continue", sameRunReflections: [] };
 			}
-			if (runtime.config.noAutoCompact) {
+			if (isManualMode(runtime.config)) {
 				savePendingReflection(sessionId, { coversUpToId: data.coversUpToId, data });
 			} else {
 				appendEntry(pi, OM_REFLECTIONS_RECORDED, data);
@@ -937,7 +938,7 @@ async function runDropperStage(
 	}
 	let dropTokens = 0;
 	let observationCoverageId: string | undefined;
-	if (runtime.config.noAutoCompact) {
+	if (isManualMode(runtime.config)) {
 		const pending = readPendingState(sessionId);
 		// Check any accumulated batch for unprocessed observations, not just the latest
 		const hasPendingObs = (pending.observationBatches ?? []).some((b: any) => (b.data as any)?.observations?.length);
@@ -969,7 +970,7 @@ async function runDropperStage(
 
 		// Compute ahead for an accurate notification
 		const folded = foldLedger(entries);
-		const pending = runtime.config.noAutoCompact ? readPendingState(sessionId) : undefined;
+		const pending = isManualMode(runtime.config) ? readPendingState(sessionId) : undefined;
 		const lastDropIdx = pending ? -1 : latestCoverageIndex(entries, OM_OBSERVATIONS_DROPPED);
 		const newObservations = pending
 			? pendingObservationsCreatedAfter(pending, entries, pending.dropped?.coversUpToId)
@@ -979,9 +980,9 @@ async function runDropperStage(
 		);
 		const dropperSummaryBudget = Math.floor(runtime.config.dropperInputMaxTokens * 0.2);
 		const dropperInputTokens = Math.min(dropperNewObsTokens + dropperSummaryBudget, runtime.config.dropperInputMaxTokens);
-		// Adjust accumulated for pending coverage in noAutoCompact mode
+		// Adjust accumulated for pending coverage in manual mode
 		let effectiveDropTokens = dropTokens;
-		if (runtime.config.noAutoCompact) {
+		if (isManualMode(runtime.config)) {
 			if (pending?.dropped?.coversUpToId) {
 				const idx = entryIndexForId(entries, pending.dropped.coversUpToId);
 				if (idx >= 0) effectiveDropTokens = rawTokensAfterIndex(entries, idx);
@@ -992,7 +993,7 @@ async function runDropperStage(
 
 		try {
 			// Existing active observations summary for context (capped).
-			// In noAutoCompact, merge accumulated pending batches with
+			// In manual mode, merge accumulated pending batches with
 			// branch data (preserving pre-switch markers).
 			const sourceObsForDropper = pending
 				? [...folded.activeObservations, ...(pending.observationBatches ?? []).flatMap((b: any) => (b.data as any)?.observations ?? [])]
@@ -1001,7 +1002,7 @@ async function runDropperStage(
 				sourceObsForDropper.filter((o: any) => !newObservations.some((no: any) => no.id === o.id)),
 				Math.floor(runtime.config.dropperInputMaxTokens * 0.2),
 			);
-			// In noAutoCompact, merge accumulated reflection batches with
+			// In manual mode, merge accumulated reflection batches with
 			// branch data (preserving pre-switch markers), matching the
 			// dropper's full autoCompact context.
 			const pendingReflections = pending
@@ -1035,14 +1036,14 @@ async function runDropperStage(
 				maxTurns: runtime.config.agentMaxTurns,
 				thinkingLevel: stageThinkingLevel(runtime, "dropper", stageModelForThinking),
 			});
-			const latestReflectionCoverageId = runtime.config.noAutoCompact
+			const latestReflectionCoverageId = isManualMode(runtime.config)
 				? pending?.reflection?.coversUpToId
 				: latestCoverageMarkerId(entries, OM_REFLECTIONS_RECORDED);
 			const effectiveReflectionCoverageId = sameRunReflectionCoverageId ?? latestReflectionCoverageId;
 			const coversUpToId = earlierCoverageMarkerId(entries, observationCoverageId, effectiveReflectionCoverageId);
 			const data = coversUpToId && droppedIds ? buildObservationsDroppedData(droppedIds, coversUpToId) : undefined;
 			if (data && coversUpToId) {
-				if (runtime.config.noAutoCompact) {
+				if (isManualMode(runtime.config)) {
 					savePendingDropped(sessionId, { coversUpToId, data });
 				} else {
 					appendEntry(pi, OM_OBSERVATIONS_DROPPED, data);

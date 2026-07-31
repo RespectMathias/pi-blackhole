@@ -544,3 +544,20 @@ export function configFileNeedsMigration(): boolean {
 		return false;
 	}
 }
+
+/**
+ * Check whether the OM pipeline is in manual mode.
+ *
+ * In manual mode, observations/reflections/dropped are saved to the
+ * per-session pending file instead of being appended to the branch.
+ * On `/blackhole`, pending entries are flushed to the branch and
+ * the pending file is cleared.
+ *
+ * Handles both the new `compaction: "manual"` key and the legacy
+ * `noAutoCompact: true` key for backward compatibility.
+ *
+ * @param config — The current runtime config (may include legacy noAutoCompact)
+ */
+export function isManualMode(config: { compaction?: string; noAutoCompact?: boolean }): boolean {
+	return config.compaction === "manual" || config.noAutoCompact === true;
+}
