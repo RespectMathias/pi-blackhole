@@ -6,6 +6,38 @@
  * bridge logic so all OM agents (observer, reflector, dropper) use the same
  * custom-provider resolution instead of each duplicating the 15-line function.
  */
+interface RegisteredProviderConfig {
+	api?: string;
+	streamSimple?: Function;
+}
+
+interface ProviderRegistry {
+	getRegisteredProviderIds?: () => readonly string[];
+	getRegisteredProviderConfig?: (providerId: string) => RegisteredProviderConfig | undefined;
+	registeredProviders?: Map<string, RegisteredProviderConfig>;
+}
+
+export function captureRegisteredProviderStreams(
+	registry: ProviderRegistry,
+	providerStreams: Map<string, Function>,
+): void {
+	if (registry.getRegisteredProviderIds && registry.getRegisteredProviderConfig) {
+		for (const providerId of registry.getRegisteredProviderIds()) {
+			const config = registry.getRegisteredProviderConfig(providerId);
+			if (config?.streamSimple && config.api && !providerStreams.has(config.api)) {
+				providerStreams.set(config.api, config.streamSimple);
+			}
+		}
+		return;
+	}
+
+	registry.registeredProviders?.forEach((config) => {
+		if (config.streamSimple && config.api && !providerStreams.has(config.api)) {
+			providerStreams.set(config.api, config.streamSimple);
+		}
+	});
+}
+
 export function createBridgeStreamFn(streamSimple: any) {
 	const PROVIDER_STREAMS_KEY = Symbol.for("pi-blackhole:provider-streams");
 	return (model: any, ctx: any, opts: any) => {
