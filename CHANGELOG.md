@@ -30,7 +30,7 @@
 
 ### Dependencies
 
-- **Bumped `@earendil-works/pi-*` packages to `0.83.0`** (agent-core, ai, coding-agent, tui).
+- **Bumped `@earendil-works/pi-*` devDependencies to `0.83.0`** (agent-core, ai, coding-agent, tui); the peer range stays `>=0.81.1 <1.0.0`. CI re-verifies typecheck + tests against the minimum supported `0.81.1` on every push/PR, so both the oldest and newest supported pi versions stay green.
 
 ### Packaging
 

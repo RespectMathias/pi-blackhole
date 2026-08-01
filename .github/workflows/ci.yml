@@ -23,6 +23,22 @@ jobs:
       - run: pnpm test
       - run: pnpm format:check
 
+  compat-min-supported:
+    name: Compat - pi 0.81.1 (min supported)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Re-pin pi packages to minimum supported version
+        run: pnpm add -D @earendil-works/pi-agent-core@0.81.1 @earendil-works/pi-ai@0.81.1 @earendil-works/pi-coding-agent@0.81.1 @earendil-works/pi-tui@0.81.1 --save-exact
+      - run: pnpm typecheck
+      - run: pnpm test
+
   fallow-audit:
     if: github.event_name == 'pull_request'
     name: Fallow - changed-code audit

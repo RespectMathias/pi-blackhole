@@ -50,10 +50,10 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": ">=0.83.0 <1.0.0",
-    "@earendil-works/pi-ai": ">=0.83.0 <1.0.0",
-    "@earendil-works/pi-coding-agent": ">=0.83.0 <1.0.0",
-    "@earendil-works/pi-tui": ">=0.83.0 <1.0.0"
+    "@earendil-works/pi-agent-core": ">=0.81.1 <1.0.0",
+    "@earendil-works/pi-ai": ">=0.81.1 <1.0.0",
+    "@earendil-works/pi-coding-agent": ">=0.81.1 <1.0.0",
+    "@earendil-works/pi-tui": ">=0.81.1 <1.0.0"
   },
   "pi": {
     "extensions": [
