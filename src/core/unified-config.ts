@@ -7,6 +7,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { applyEnvOverrides, DECLARATIVE_ENV_OVERRIDES } from "./config-env.js";
 import { getAgentDir as originalGetAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 
@@ -529,7 +530,16 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
     }
   }
 
-  return merged;
+  // ── Declarative PI_BLACKHOLE_* overrides ──
+  // Same env map as the ConfigManager modal path, so env overrides apply
+  // to the RUNTIME config, not just the modal. Overrides any file value.
+  const withEnv = applyEnvOverrides(
+    merged,
+    DECLARATIVE_ENV_OVERRIDES,
+    DEFAULTS as unknown as Record<string, unknown>,
+  );
+
+  return withEnv;
 }
 
 /**

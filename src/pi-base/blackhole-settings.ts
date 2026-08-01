@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ConfigManager } from "../pi-base/config-manager.js";
 import { getPiAgentDir } from "../pi-base/paths.js";
+import { DECLARATIVE_ENV_OVERRIDES } from "../core/config-env.js";
 import { DEFAULTS, type UnifiedConfig } from "../core/unified-config.js";
 
 const CONFIG_FILENAME = "pi-blackhole-config.json";
@@ -393,34 +394,7 @@ export const config = new ConfigManager<UnifiedConfig>({
     return merged;
   },
 
-  env: {
-    // Declarative boolean overrides
-    memory: "PI_BLACKHOLE_MEMORY",
-    debug: "PI_BLACKHOLE_DEBUG",
-    debugLog: "PI_BLACKHOLE_DEBUG_LOG",
-    sessionFallback: "PI_BLACKHOLE_SESSION_FALLBACK",
-    fullFoldAlways: "PI_BLACKHOLE_FULL_FOLD_ALWAYS",
-
-    // Declarative numeric overrides
-    compactAfterTokens: "PI_BLACKHOLE_COMPACT_AFTER_TOKENS",
-    observeAfterTokens: "PI_BLACKHOLE_OBSERVE_AFTER_TOKENS",
-    reflectAfterTokens: "PI_BLACKHOLE_REFLECT_AFTER_TOKENS",
-    observationsPoolMaxTokens: "PI_BLACKHOLE_OBSERVATIONS_POOL_MAX_TOKENS",
-    observationsPoolTargetTokens:
-      "PI_BLACKHOLE_OBSERVATIONS_POOL_TARGET_TOKENS",
-    reflectorInputMaxTokens: "PI_BLACKHOLE_REFLECTOR_INPUT_MAX_TOKENS",
-    dropperInputMaxTokens: "PI_BLACKHOLE_DROPPER_INPUT_MAX_TOKENS",
-    observerChunkMaxTokens: "PI_BLACKHOLE_OBSERVER_CHUNK_MAX_TOKENS",
-    observerPreambleMaxTokens: "PI_BLACKHOLE_OBSERVER_PREAMBLE_MAX_TOKENS",
-    agentMaxTurns: "PI_BLACKHOLE_AGENT_MAX_TURNS",
-    dropperPressureThreshold: {
-      var: "PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD",
-      parse: (raw) => {
-        const n = Number.parseFloat(raw);
-        return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
-      },
-    },
-  },
+  env: DECLARATIVE_ENV_OVERRIDES,
 });
 
 // ── Public entry point ───────────────────────────────────────────────────────

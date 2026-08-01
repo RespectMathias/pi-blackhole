@@ -349,6 +349,56 @@ describe("Env overrides", () => {
   });
 });
 
+describe("Declarative env overrides apply at runtime", () => {
+  afterEach(() => {
+    // Clean up every env var this block may set.
+    delete process.env.PI_BLACKHOLE_COMPACT_AFTER_TOKENS;
+    delete process.env.PI_BLACKHOLE_DEBUG;
+    delete process.env.PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD;
+    delete process.env.PI_BLACKHOLE_OBSERVE_AFTER_TOKENS;
+  });
+
+  it("int override wins over the file value (runtime path)", async () => {
+    process.env.PI_BLACKHOLE_COMPACT_AFTER_TOKENS = "200000";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ compactAfterTokens: 185_000 });
+    const config = loadUnifiedConfig(testDir);
+    expect(config.compactAfterTokens).toBe(200_000);
+  });
+
+  it("boolean override applies", async () => {
+    process.env.PI_BLACKHOLE_DEBUG = "true";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ debug: false });
+    const config = loadUnifiedConfig(testDir);
+    expect(config.debug).toBe(true);
+  });
+
+  it("invalid int falls back to the configured value", async () => {
+    process.env.PI_BLACKHOLE_COMPACT_AFTER_TOKENS = "not-a-number";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ compactAfterTokens: 185_000 });
+    const config = loadUnifiedConfig(testDir);
+    expect(config.compactAfterTokens).toBe(185_000);
+  });
+
+  it("float override (dropperPressureThreshold) applies", async () => {
+    process.env.PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD = "0.5";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ dropperPressureThreshold: 0.7 });
+    const config = loadUnifiedConfig(testDir);
+    expect(config.dropperPressureThreshold).toBe(0.5);
+  });
+
+  it("out-of-range float is rejected (keeps configured value)", async () => {
+    process.env.PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD = "2.0";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ dropperPressureThreshold: 0.7 });
+    const config = loadUnifiedConfig(testDir);
+    expect(config.dropperPressureThreshold).toBe(0.7);
+  });
+});
+
 describe("Integer fields are validated as positive integers", () => {
   it("rejects negative token values, falls back to defaults", async () => {
     const { loadUnifiedConfig } = await import("../src/core/unified-config.js");

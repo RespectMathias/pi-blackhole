@@ -9,9 +9,12 @@
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  applyEnvOverrides as applyEnvOverridesGeneric,
+  type EnvParser,
+} from "../core/config-env.js";
+export type { EnvParser } from "../core/config-env.js";
+import {
   loadConfig,
-  readBooleanEnv,
-  readPositiveIntEnv,
   writeConfig,
   readConfig,
   deleteConfig,
@@ -48,13 +51,6 @@ export interface ConfigManagerOptions<T extends object = object> {
    * For custom parsing, use a parser object with a `parse` function.
    */
   env?: Partial<Record<keyof T, string | EnvParser>>;
-}
-
-export interface EnvParser {
-  /** Env var name */
-  var: string;
-  /** Custom parse function (receives raw string, returns parsed value) */
-  parse: (raw: string, current: unknown) => unknown;
 }
 
 export interface ConfigLoadWarning {
@@ -142,50 +138,11 @@ export class ConfigManager<T extends object> {
   private applyEnvOverrides(config: T): T {
     const env = this.opts.env;
     if (!env) return config;
-
-    const result = { ...config } as Record<string, unknown>;
-
-    for (const [key, value] of Object.entries(env)) {
-      if (!value) continue;
-
-      const defaultValue = (this.opts.defaults as Record<string, unknown>)[key];
-
-      if (typeof value === "string") {
-        // Auto-detect type from default value
-        const envName = value;
-        if (typeof defaultValue === "boolean") {
-          result[key] = readBooleanEnv(
-            envName,
-            (result[key] as boolean) ?? (defaultValue as boolean),
-          );
-        } else if (typeof defaultValue === "number") {
-          if (Number.isInteger(defaultValue) && defaultValue > 0) {
-            result[key] = readPositiveIntEnv(
-              envName,
-              (result[key] as number) ?? (defaultValue as number),
-            );
-          } else {
-            // Float — parse and preserve
-            const raw = process.env[envName]?.trim();
-            if (raw) {
-              const parsed = Number.parseFloat(raw);
-              if (Number.isFinite(parsed)) {
-                result[key] = parsed;
-              }
-            }
-          }
-        }
-      } else {
-        // Custom EnvParser
-        const parser = value as EnvParser;
-        const raw = process.env[parser.var]?.trim();
-        if (raw) {
-          result[key] = parser.parse(raw, result[key]);
-        }
-      }
-    }
-
-    return result as T;
+    return applyEnvOverridesGeneric(
+      config,
+      env as Record<string, EnvParser | string>,
+      this.opts.defaults as Record<string, unknown>,
+    );
   }
 
   /**

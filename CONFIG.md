@@ -365,15 +365,66 @@ These keys are still accepted for backward compatibility but are silently migrat
 
 ## Environment Variable Overrides
 
-Environment variables override config file values at load time:
+Environment variables override config file values **at load time** and apply to both the runtime and the modal. Invalid values fall back to the configured (or default) value.
+
+Boolean parsing accepts `1`, `true`, `yes`, `on` (and `0`, `false`, `no`, `off`).
+
+### Compaction mode
 
 | Variable | Overrides | Example |
 |----------|-----------|---------|
-| `PI_BLACKHOLE_PASSIVE` | Sets `compaction: "off"` + `memory: false` | `PI_BLACKHOLE_PASSIVE=1` |
-| `PI_BLACKHOLE_COMPACTION` | Overrides `compaction` | `PI_BLACKHOLE_COMPACTION=manual` |
-| `PI_BLACKHOLE_COMPACTION_ENGINE` | Overrides `compactionEngine` | `PI_BLACKHOLE_COMPACTION_ENGINE=pi-default` |
+| `PI_BLACKHOLE_COMPACTION` | `compaction` (`auto` \| `manual` \| `off`) | `PI_BLACKHOLE_COMPACTION=manual` |
+| `PI_BLACKHOLE_COMPACTION_ENGINE` | `compactionEngine` (`blackhole` \| `pi-default`) | `PI_BLACKHOLE_COMPACTION_ENGINE=pi-default` |
 
-Legacy env vars still supported: `PI_VCC_OM_PASSIVE`, `PI_OBSERVATIONAL_MEMORY_PASSIVE`.
+### Passive mode (legacy)
+
+Sets `compaction: "off"` + `memory: false` when truthy. All three names remain supported:
+
+| Variable | Notes |
+|----------|-------|
+| `PI_BLACKHOLE_PASSIVE` | Current name |
+| `PI_VCC_OM_PASSIVE` | Legacy pi-vcc name |
+| `PI_OBSERVATIONAL_MEMORY_PASSIVE` | Legacy pi-observational-memory name |
+
+### Declarative field overrides
+
+Boolean fields:
+
+| Variable | Overrides |
+|----------|-----------|
+| `PI_BLACKHOLE_MEMORY` | `memory` |
+| `PI_BLACKHOLE_DEBUG` | `debug` (debug snapshots) |
+| `PI_BLACKHOLE_DEBUG_LOG` | `debugLog` (JSONL logging) |
+| `PI_BLACKHOLE_SESSION_FALLBACK` | `sessionFallback` |
+| `PI_BLACKHOLE_FULL_FOLD_ALWAYS` | `fullFoldAlways` |
+
+Positive-integer fields (invalid values fall back):
+
+| Variable | Overrides |
+|----------|-----------|
+| `PI_BLACKHOLE_COMPACT_AFTER_TOKENS` | `compactAfterTokens` |
+| `PI_BLACKHOLE_OBSERVE_AFTER_TOKENS` | `observeAfterTokens` |
+| `PI_BLACKHOLE_REFLECT_AFTER_TOKENS` | `reflectAfterTokens` |
+| `PI_BLACKHOLE_OBSERVATIONS_POOL_MAX_TOKENS` | `observationsPoolMaxTokens` |
+| `PI_BLACKHOLE_OBSERVATIONS_POOL_TARGET_TOKENS` | `observationsPoolTargetTokens` |
+| `PI_BLACKHOLE_REFLECTOR_INPUT_MAX_TOKENS` | `reflectorInputMaxTokens` |
+| `PI_BLACKHOLE_DROPPER_INPUT_MAX_TOKENS` | `dropperInputMaxTokens` |
+| `PI_BLACKHOLE_OBSERVER_CHUNK_MAX_TOKENS` | `observerChunkMaxTokens` |
+| `PI_BLACKHOLE_OBSERVER_PREAMBLE_MAX_TOKENS` | `observerPreambleMaxTokens` |
+| `PI_BLACKHOLE_AGENT_MAX_TURNS` | `agentMaxTurns` |
+
+Float field (must be in `(0, 1]`):
+
+| Variable | Overrides |
+|----------|-----------|
+| `PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD` | `dropperPressureThreshold` |
+
+### Paths and internals
+
+| Variable | Purpose |
+|----------|---------|
+| `PI_CODING_AGENT_DIR` | Overrides the pi agent data directory (config lives at `<dir>/pi-blackhole/pi-blackhole-config.json`) |
+| `PI_VCC_COMPACT_INSTRUCTION` | Internal sentinel for the pi-default compaction engine — not a user override |
 
 ## Complete Examples
 
