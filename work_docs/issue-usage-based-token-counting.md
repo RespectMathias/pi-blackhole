@@ -3,7 +3,7 @@
 **Date:** 2026-08-01
 **Status:** Investigation complete — evidence collected over the **full session archive (698 unique sessions)**; fix designed; default-threshold calibration planned. **Planning only — no code changes yet** (significant refactor with cost/churn implications for auto-install users).
 **Scope:** `src/om/ledger/progress.ts`, `src/om/tokens.ts`, `src/om/compaction-trigger.ts`, `src/om/consolidation.ts` (due-checks), `src/commands/memory.ts` (status display)
-**Reproduce:** `node scripts/analyze-token-estimation.mjs` (all sessions → `tmp/token-estimation-report.md`) or `--defaults` (code-default thresholds → `tmp/token-estimation-report-defaults.md`)
+**Reproduce:** `node scripts/analyze-token-estimation.mjs` (all sessions → `tmp/token-estimation-report.md`) or `--defaults` (code-default thresholds → `tmp/token-estimation-report-defaults.md`); tracked math-only review artifact: `node scripts/analyze-token-estimation.mjs --summary work_docs/token-estimation-results.md`
 
 ---
 

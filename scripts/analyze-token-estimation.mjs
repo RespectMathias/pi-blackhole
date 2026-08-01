@@ -29,18 +29,25 @@
  *   - usage distribution percentiles (p50/p75/p90/p95/max) per stage, the raw
  *     material for generation-aware preset proposals.
  *
- * Usage: node scripts/analyze-token-estimation.mjs [N] [--defaults]
+ * Usage: node scripts/analyze-token-estimation.mjs [N] [--defaults] [--summary <path>]
  *   N = number of most-recent session files to analyze.
  *   Omit N (or pass "all") to analyze EVERY unique session (realpath-deduped).
  *   --defaults = evaluate with the built-in code defaults (observe 15k /
  *                reflect+drop 25k / compact 81k) instead of the user's global
  *                config values — the surface an auto-install user gets.
+ *   --summary <path> = also write a tracked review artifact to <path> with
+ *                only the math (aggregate + calibration + observer input
+ *                simulation) for BOTH surfaces — no per-window rows. Intended
+ *                for work_docs/ so the numbers are reviewable on GitHub.
  *
  * Output:
  *   - console: per-window table (first 70 rows) + aggregate + calibration
+ *   - observer input simulation: what the observer would serialize upstream
+ *     (role shares + head+tail trim of oversized tool results) — orthogonal
+ *     to the counters, which use provider usage of the session context
  *   - tmp/token-estimation-report.md (or -defaults.md): full report incl. ALL
- *     rows, per-stage aggregate, calibration table, and usage distributions
- *     (reproducible).
+ *     rows, per-stage aggregate, calibration table, usage distributions, and
+ *     the observer simulation (reproducible).
  */
 import {
   readFileSync,
@@ -62,14 +69,8 @@ const args = process.argv.slice(2);
 const useDefaults = args.includes("--defaults");
 const positional = args.find((a) => !a.startsWith("--"));
 const limit = positional && positional !== "all" ? Number(positional) || 0 : 0;
-const REPORT_PATH = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "..",
-  "tmp",
-  useDefaults
-    ? "token-estimation-report-defaults.md"
-    : "token-estimation-report.md",
-);
+const summaryArg = args.indexOf("--summary");
+const summaryPath = summaryArg >= 0 ? args[summaryArg + 1] : undefined;
 const OM_TYPES = {
   observations: "om.observations.recorded",
   reflections: "om.reflections.recorded",
@@ -78,6 +79,15 @@ const OM_TYPES = {
 const SOURCE_TYPES = new Set(["message", "custom_message", "branch_summary"]);
 const CONSOLE_ROW_CAP = 70;
 
+// Tool-result trim simulation parameters (head+tail policy, applied only to
+// the observer's serialized input — see plan doc; the provider usage numbers
+// that drive the counters are NOT affected).
+const TRIM = {
+  headChars: 2000,
+  tailChars: 2000,
+  thresholdChars: 4096, // only trim tool results larger than this
+};
+
 // ── config thresholds (global config, or built-in code defaults with --defaults)
 function loadThresholds(useDefaults) {
   const codeDefaults = {
@@ -85,6 +95,7 @@ function loadThresholds(useDefaults) {
     reflect: 25_000,
     drop: 25_000,
     compact: 81_000,
+    observerChunk: 40_000,
   };
   if (useDefaults) return codeDefaults;
   const cfgPath = path.join(
@@ -101,6 +112,7 @@ function loadThresholds(useDefaults) {
       reflect: raw.reflectAfterTokens ?? codeDefaults.reflect,
       drop: raw.reflectAfterTokens ?? codeDefaults.drop,
       compact: raw.compactAfterTokens ?? codeDefaults.compact,
+      observerChunk: raw.observerChunkMaxTokens ?? codeDefaults.observerChunk,
     };
   } catch {
     return codeDefaults;
@@ -308,6 +320,134 @@ function fmtNum(v) {
   return v === undefined ? "n/a" : String(v);
 }
 
+// ── observer input simulation (what the observer would send upstream) ────
+// Mirrors serialize.ts serializeConversation + consolidation.ts
+// capSourceEntriesToTokens. The provider usage numbers that drive the
+// counters measure the SESSION context and are unaffected by trimming —
+// this simulation only models the observer's own serialized input volume.
+function textOfBlock(block) {
+  return typeof block?.text === "string" ? block.text : "";
+}
+
+function messageText(msg) {
+  const c = msg.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.map(textOfBlock).filter(Boolean).join("\n");
+  return "";
+}
+
+function observerChunkEntries(entries, maxChunkTokens) {
+  const marker = latestCoverageIndex(entries, OM_TYPES.observations);
+  const start = Math.max(0, marker + 1, branchStartIndex(entries));
+  const window = entries.slice(start).filter(isSourceEntry);
+  let totalTokens = 0;
+  const kept = [];
+  for (let i = window.length - 1; i >= 0; i--) {
+    const entry = window[i];
+    let chars = 0;
+    if (entry.type === "message" && entry.message) {
+      const msg = entry.message;
+      if (typeof msg.content === "string") chars = msg.content.length;
+      else if (Array.isArray(msg.content)) {
+        for (const block of msg.content)
+          if (block?.text) chars += block.text.length;
+      }
+    } else if (entry.type === "custom") {
+      chars = String(JSON.stringify(entry.data ?? {})).length;
+    } else if (entry.summary) {
+      chars = String(entry.summary).length;
+    }
+    const estTokens = Math.ceil(chars / 4);
+    if (totalTokens + estTokens > maxChunkTokens && kept.length > 0) break;
+    if (totalTokens + estTokens > maxChunkTokens && kept.length === 0) {
+      kept.unshift(entry); // oversized newest entry: include it, then stop
+      break;
+    }
+    kept.unshift(entry);
+    totalTokens += estTokens;
+  }
+  return kept;
+}
+
+function zeroBuckets() {
+  return {
+    user: 0,
+    assistantText: 0,
+    thinking: 0,
+    toolCall: 0,
+    toolResult: 0,
+    custom: 0,
+    summary: 0,
+    toolResultChars: 0,
+    toolResultTrimmedChars: 0,
+  };
+}
+
+/** Classify a serialized chunk by message role; simulate head+tail trimming
+ *  of oversized tool results (mirrors how serializeConversation renders). */
+function classifyChunk(chunk) {
+  const b = zeroBuckets();
+  const est = (s) => Math.ceil((s ?? "").length / 4);
+  for (const entry of chunk) {
+    if (entry.type === "message" && entry.message) {
+      const msg = entry.message;
+      const content = msg.content;
+      if (msg.role === "user") {
+        b.user += est(messageText(msg));
+        continue;
+      }
+      if (msg.role === "assistant") {
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block?.type === "text" && typeof block.text === "string")
+              b.assistantText += est(block.text);
+            else if (
+              block?.type === "thinking" &&
+              typeof block.thinking === "string"
+            )
+              b.thinking += est(block.thinking);
+            else if (block?.type === "toolCall")
+              b.toolCall += est(
+                (block.name ?? "") + JSON.stringify(block.arguments ?? {}),
+              );
+          }
+        }
+        continue;
+      }
+      // tool result (any other role)
+      const text = messageText(msg);
+      b.toolResult += est(text);
+      b.toolResultChars += text.length;
+      if (text.length > TRIM.thresholdChars) {
+        const head = text.slice(0, TRIM.headChars);
+        const tail = text.slice(-TRIM.tailChars);
+        const dropped = text.length - head.length - tail.length;
+        b.toolResultTrimmedChars +=
+          head.length +
+          tail.length +
+          `\n… [truncated ${dropped} chars] …\n`.length;
+      } else {
+        b.toolResultTrimmedChars += text.length;
+      }
+      continue;
+    }
+    if (entry.type === "custom_message") {
+      const text =
+        typeof entry.content === "string"
+          ? entry.content
+          : Array.isArray(entry.content)
+            ? entry.content.map(textOfBlock).filter(Boolean).join("\n")
+            : "";
+      b.custom += est(text);
+      continue;
+    }
+    if (entry.type === "branch_summary" && typeof entry.summary === "string") {
+      b.summary += est(entry.summary);
+      continue;
+    }
+  }
+  return b;
+}
 // ── session discovery ─────────────────────────────────────────────────────
 function findSessions(limit) {
   const seen = new Set();
@@ -356,234 +496,482 @@ function parseEntries(filePath) {
   return entries;
 }
 
-// ── report ────────────────────────────────────────────────────────────────
-const th = loadThresholds(useDefaults);
-const sessions = findSessions(limit);
+// ── single-pass analysis (computation + console + tmp report) ─────────────
+function analyzeOnce(useDefaults, limit) {
+  const th = loadThresholds(useDefaults);
+  const REPORT_PATH = path.join(
+    path.dirname(new URL(import.meta.url).pathname),
+    "..",
+    "tmp",
+    useDefaults
+      ? "token-estimation-report-defaults.md"
+      : "token-estimation-report.md",
+  );
+  const sessions = findSessions(limit);
 
-const stages = [
-  { name: "observer", type: OM_TYPES.observations, threshold: th.observe },
-  { name: "reflector", type: OM_TYPES.reflections, threshold: th.reflect },
-  { name: "dropper", type: OM_TYPES.drops, threshold: th.drop },
-  { name: "compaction", type: null, threshold: th.compact },
-];
+  const stages = [
+    { name: "observer", type: OM_TYPES.observations, threshold: th.observe },
+    { name: "reflector", type: OM_TYPES.reflections, threshold: th.reflect },
+    { name: "dropper", type: OM_TYPES.drops, threshold: th.drop },
+    { name: "compaction", type: null, threshold: th.compact },
+  ];
 
-const agg = Object.fromEntries(
-  stages.map((s) => [
-    s.name,
-    {
-      ratios: [], // est/usage over marker-present, usage>0 windows
-      estValues: [], // est over all windows with usage>0 (calibration surface)
-      usageValues: [], // usage over all windows with usage>0
-      estOver: 0, // est >= threshold (all windows)
-      usageOver: 0, // usage >= threshold (all windows)
-      late: 0, // est<thr but usage>=thr
-      early: 0, // est>=thr but usage<thr
-      withMarker: 0,
-      noMarker: 0,
-      noUsage: 0,
-    },
-  ]),
-);
+  const agg = Object.fromEntries(
+    stages.map((s) => [
+      s.name,
+      {
+        ratios: [], // est/usage over marker-present, usage>0 windows
+        estValues: [], // est over all windows with usage>0 (calibration surface)
+        usageValues: [], // usage over all windows with usage>0
+        estOver: 0, // est >= threshold (all windows)
+        usageOver: 0, // usage >= threshold (all windows)
+        late: 0, // est<thr but usage>=thr
+        early: 0, // est>=thr but usage<thr
+        withMarker: 0,
+        noMarker: 0,
+        noUsage: 0,
+      },
+    ]),
+  );
 
-const rows = []; // full per-window rows for the report file
+  const rows = []; // full per-window rows for the report file
+  const obsSim = []; // observer input simulation rows
 
-console.log(
-  `Analyzing ${sessions.length} session files under ${SESSIONS_DIR}\n` +
-    `Thresholds: observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}\n` +
-    `(est = current chars/4 estimate over the branch window; usage = proposed usage-based count; marker = index of last coverage marker / compaction, -1 = none)`,
-);
-console.log(
-  "stage      est       usage     ratio  marker  est>=thr  usage>=thr  session",
-);
+  console.log(
+    `Analyzing ${sessions.length} session files under ${SESSIONS_DIR}\n` +
+      `Thresholds: observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}\n` +
+      `(est = current chars/4 estimate over the branch window; usage = proposed usage-based count; marker = index of last coverage marker / compaction, -1 = none)`,
+  );
+  console.log(
+    "stage      est       usage     ratio  marker  est>=thr  usage>=thr  session",
+  );
 
-for (const [si, s] of sessions.entries()) {
-  if ((si + 1) % 100 === 0)
-    console.log(`… processed ${si + 1}/${sessions.length} sessions`);
-  const entries = parseEntries(s.path);
-  const name = path
-    .basename(s.path)
-    .replace(/_019[a-f0-9-]+\.jsonl$/, "")
-    .slice(-22);
-  for (const stage of stages) {
-    const marker =
-      stage.type === null
-        ? findLastCompactionIndex(entries)
-        : latestCoverageIndex(entries, stage.type);
-    const est = rawTokensAfterIndexBounded(entries, marker);
-    const usage =
-      stage.type === null
-        ? usageSinceLastCompaction(entries)
-        : usageDeltaSinceCoverage(entries, stage.type);
-    const ratio = usage > 0 ? est / usage : undefined;
-    const estOver = est >= stage.threshold;
-    const usageOver = usage >= stage.threshold;
+  for (const [si, s] of sessions.entries()) {
+    if ((si + 1) % 100 === 0)
+      console.log(`… processed ${si + 1}/${sessions.length} sessions`);
+    const entries = parseEntries(s.path);
+    const name = path
+      .basename(s.path)
+      .replace(/_019[a-f0-9-]+\.jsonl$/, "")
+      .slice(-22);
+    for (const stage of stages) {
+      const marker =
+        stage.type === null
+          ? findLastCompactionIndex(entries)
+          : latestCoverageIndex(entries, stage.type);
+      const est = rawTokensAfterIndexBounded(entries, marker);
+      const usage =
+        stage.type === null
+          ? usageSinceLastCompaction(entries)
+          : usageDeltaSinceCoverage(entries, stage.type);
+      const ratio = usage > 0 ? est / usage : undefined;
+      const estOver = est >= stage.threshold;
+      const usageOver = usage >= stage.threshold;
 
-    const a = agg[stage.name];
-    if (marker >= 0) a.withMarker++;
-    else a.noMarker++;
-    if (usage > 0) {
-      if (marker >= 0) a.ratios.push(ratio);
-      a.estValues.push(est);
-      a.usageValues.push(usage);
+      const a = agg[stage.name];
+      if (marker >= 0) a.withMarker++;
+      else a.noMarker++;
+      if (usage > 0) {
+        if (marker >= 0) a.ratios.push(ratio);
+        a.estValues.push(est);
+        a.usageValues.push(usage);
+      }
+      if (usage === 0 && est === 0) a.noUsage++;
+      if (estOver) a.estOver++;
+      if (usageOver) a.usageOver++;
+      if (usageOver && !estOver) a.late++;
+      if (estOver && !usageOver) a.early++;
+
+      rows.push({
+        stage: stage.name,
+        est,
+        usage,
+        ratio,
+        marker,
+        estOver,
+        usageOver,
+        session: name,
+      });
     }
-    if (usage === 0 && est === 0) a.noUsage++;
-    if (estOver) a.estOver++;
-    if (usageOver) a.usageOver++;
-    if (usageOver && !estOver) a.late++;
-    if (estOver && !usageOver) a.early++;
 
-    rows.push({
-      stage: stage.name,
-      est,
-      usage,
-      ratio,
-      marker,
-      estOver,
-      usageOver,
-      session: name,
-    });
+    // Observer input simulation: what the observer would send upstream now.
+    const obsChunk = observerChunkEntries(entries, th.observerChunk);
+    if (obsChunk.length > 0) {
+      const b = classifyChunk(obsChunk);
+      const chunkTokens =
+        b.user +
+        b.assistantText +
+        b.thinking +
+        b.toolCall +
+        b.toolResult +
+        b.custom +
+        b.summary;
+      const trimmedTokens =
+        chunkTokens - b.toolResult + Math.ceil(b.toolResultTrimmedChars / 4);
+      if (chunkTokens > 0) {
+        obsSim.push({
+          session: name,
+          chunkTokens,
+          toolResultTokens: b.toolResult,
+          thinkingTokens: b.thinking,
+          trimmedTokens,
+        });
+      }
+    }
   }
-}
 
-// ── console aggregate ─────────────────────────────────────────────────────
-console.log("\n── Aggregate (ratios over marker-present, usage>0 windows) ──");
-for (const stage of stages) {
-  const a = agg[stage.name];
-  const ratios = [...a.ratios].sort((x, y) => x - y);
-  const med = ratios.length
-    ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
-    : "n/a";
-  const min = ratios.length ? ratios[0].toFixed(2) : "n/a";
-  const max = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
-  const trigger =
-    a.late || a.early
-      ? `| fires LATE:${a.late} EARLY:${a.early}`
-      : "| triggers agree";
+  // ── console aggregate ─────────────────────────────────────────────────────
   console.log(
-    `${stage.name.padEnd(10)} n=${String(ratios.length).padStart(3)}  est/usage median=${med} min=${min} max=${max}  | est>=thr:${a.estOver} usage>=thr:${a.usageOver} (windows: ${a.withMarker} marker / ${a.noMarker} no-marker)${a.noUsage ? ` no-usage:${a.noUsage}` : ""} ${trigger}`,
+    "\n── Aggregate (ratios over marker-present, usage>0 windows) ──",
   );
-}
+  for (const stage of stages) {
+    const a = agg[stage.name];
+    const ratios = [...a.ratios].sort((x, y) => x - y);
+    const med = ratios.length
+      ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
+      : "n/a";
+    const min = ratios.length ? ratios[0].toFixed(2) : "n/a";
+    const max = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
+    const trigger =
+      a.late || a.early
+        ? `| fires LATE:${a.late} EARLY:${a.early}`
+        : "| triggers agree";
+    console.log(
+      `${stage.name.padEnd(10)} n=${String(ratios.length).padStart(3)}  est/usage median=${med} min=${min} max=${max}  | est>=thr:${a.estOver} usage>=thr:${a.usageOver} (windows: ${a.withMarker} marker / ${a.noMarker} no-marker)${a.noUsage ? ` no-usage:${a.noUsage}` : ""} ${trigger}`,
+    );
+  }
 
-// ── calibration (planning input for default threshold bumps) ──────────────
-console.log(
-  "\n── Calibration (usage-accurate counting with unchanged thresholds) ──",
-);
-console.log(
-  "stage      estOver usageOver  churn×   calibrated(median)  same-fire-count T'  usage p50    p90    p95    max",
-);
-const cal = [];
-for (const stage of stages) {
-  const a = agg[stage.name];
-  const usageSorted = [...a.usageValues].sort((x, y) => x - y);
-  const churn = a.estOver > 0 ? a.usageOver / a.estOver : undefined;
-  // calibrated via median(usage/est) over marker windows
-  const invRatios = a.ratios
-    .map((r) => (r > 0 ? 1 / r : undefined))
-    .filter((v) => v !== undefined);
-  invRatios.sort((x, y) => x - y);
-  const medInv = invRatios.length
-    ? invRatios[Math.floor(invRatios.length / 2)]
-    : undefined;
-  const calibrated =
-    medInv !== undefined ? Math.round(stage.threshold * medInv) : undefined;
-  const sameCount = sameFireCountThreshold(a.usageValues, a.estOver);
-  const sameCountAchieved = countAtOrAbove(a.usageValues, sameCount);
-  cal.push({
-    stage: stage.name,
-    ...a,
-    churn,
-    calibrated,
-    sameCount,
-    sameCountAchieved,
-    usageSorted,
-  });
+  // ── calibration (planning input for default threshold bumps) ──────────────
   console.log(
-    `${stage.name.padEnd(10)} ${String(a.estOver).padStart(7)} ${String(a.usageOver).padStart(9)}  ${churn !== undefined ? churn.toFixed(1).padStart(5) : "  n/a"}  ${fmtNum(calibrated).padStart(20)}  ${fmtNum(sameCount).padStart(17)}  ${fmtPct(usageSorted, 0.5).padStart(8)} ${fmtPct(usageSorted, 0.9).padStart(6)} ${fmtPct(usageSorted, 0.95).padStart(6)} ${fmtPct(usageSorted, 1).padStart(7)}`,
+    "\n── Calibration (usage-accurate counting with unchanged thresholds) ──",
   );
-}
-console.log(
-  `\nSessions analyzed: ${sessions.length} | est/usage < 1 means est UNDERREPORTS usage (fires late); > 1 overreports (fires early)
+  console.log(
+    "stage      estOver usageOver  churn×   calibrated(median)  same-fire-count T'  usage p50    p90    p95    max",
+  );
+  const cal = [];
+  for (const stage of stages) {
+    const a = agg[stage.name];
+    const usageSorted = [...a.usageValues].sort((x, y) => x - y);
+    const churn = a.estOver > 0 ? a.usageOver / a.estOver : undefined;
+    // calibrated via median(usage/est) over marker windows
+    const invRatios = a.ratios
+      .map((r) => (r > 0 ? 1 / r : undefined))
+      .filter((v) => v !== undefined);
+    invRatios.sort((x, y) => x - y);
+    const medInv = invRatios.length
+      ? invRatios[Math.floor(invRatios.length / 2)]
+      : undefined;
+    const calibrated =
+      medInv !== undefined ? Math.round(stage.threshold * medInv) : undefined;
+    const sameCount = sameFireCountThreshold(a.usageValues, a.estOver);
+    const sameCountAchieved = countAtOrAbove(a.usageValues, sameCount);
+    cal.push({
+      stage: stage.name,
+      ...a,
+      churn,
+      calibrated,
+      sameCount,
+      sameCountAchieved,
+      usageSorted,
+    });
+    console.log(
+      `${stage.name.padEnd(10)} ${String(a.estOver).padStart(7)} ${String(a.usageOver).padStart(9)}  ${churn !== undefined ? churn.toFixed(1).padStart(5) : "  n/a"}  ${fmtNum(calibrated).padStart(20)}  ${fmtNum(sameCount).padStart(17)}  ${fmtPct(usageSorted, 0.5).padStart(8)} ${fmtPct(usageSorted, 0.9).padStart(6)} ${fmtPct(usageSorted, 0.95).padStart(6)} ${fmtPct(usageSorted, 1).padStart(7)}`,
+    );
+  }
+  console.log(
+    `\nSessions analyzed: ${sessions.length} | est/usage < 1 means est UNDERREPORTS usage (fires late); > 1 overreports (fires early)
 churn× = usageOver/estOver (how many more fires with truthful counting, unchanged thresholds)
 calibrated(median) = threshold × median(usage/est) — same fire frequency on the median window
-same-fire-count T' = largest T' with count(usage >= T') <= count(est >= threshold) — exact, tie-safe`,
-);
+same-fire-count T' = k-th largest actual usage with k = today's est fire count — reproduces today's fire frequency under truthful counting`,
+  );
 
-// ── write full report file ────────────────────────────────────────────────
-const md = [];
-md.push("# Token estimation vs actual usage — algorithmic report");
-md.push("");
-md.push(
-  `- Command: \`node scripts/analyze-token-estimation.mjs${limit ? ` ${limit}` : ""}${useDefaults ? " --defaults" : ""}\``,
-);
-md.push(
-  `- Sessions analyzed: ${sessions.length} (unique, realpath-deduped) under \`${SESSIONS_DIR}\``,
-);
-md.push(
-  `- Thresholds (from global config): observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}`,
-);
-md.push(`- Generated: ${new Date().toISOString()}`);
-md.push("");
-md.push("## Per-window rows");
-md.push("");
-md.push(
-  "| stage | est | usage | ratio | marker | est>=thr | usage>=thr | session |",
-);
-md.push("|---|---|---|---|---|---|---|---|");
-for (const r of rows) {
-  md.push(
-    `| ${r.stage} | ${r.est} | ${r.usage} | ${r.ratio !== undefined ? r.ratio.toFixed(2) : "n/a"} | ${r.marker} | ${r.estOver} | ${r.usageOver} | ${r.session} |`,
-  );
-}
-md.push("");
-md.push("## Aggregate (ratios over marker-present, usage>0 windows)");
-md.push("");
-md.push(
-  "| stage | n | median | min | max | est>=thr | usage>=thr | marker | no-marker | no-usage | LATE | EARLY |",
-);
-md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const stage of stages) {
-  const a = agg[stage.name];
-  const ratios = [...a.ratios].sort((x, y) => x - y);
-  const med = ratios.length
-    ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
-    : "n/a";
-  const min = ratios.length ? ratios[0].toFixed(2) : "n/a";
-  const max = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
-  md.push(
-    `| ${stage.name} | ${ratios.length} | ${med} | ${min} | ${max} | ${a.estOver} | ${a.usageOver} | ${a.withMarker} | ${a.noMarker} | ${a.noUsage} | ${a.late} | ${a.early} |`,
-  );
-}
-md.push("");
-md.push("## Calibration (planning input for default threshold bumps)");
-md.push("");
-md.push("Interpretation:");
-md.push(
-  "- **churn×** = `usageOver / estOver` — how many more times the stage would fire under truthful counting with unchanged thresholds. This is the API-call/cost multiplier auto-install users would silently absorb.",
-);
-md.push(
-  "- **calibrated(median)** = `threshold × median(usage/est)` — the threshold preserving today's fire frequency on the median window.",
-);
-md.push(
-  "- **same-fire-count T'** = the **k-th largest** actual usage across windows (k = today's est fire count) — the threshold under truthful counting that reproduces today's total fire frequency. Achieved count is reported alongside (may exceed k on ties).",
-);
-md.push(
-  "- **usage p50/p90/p95/max** = distribution of actual usage at trigger-decision points. Planned default bumps should sit comfortably above p90/p95 to control churn for auto-install users (their models now run 256k–1M windows; see work_docs plan).",
-);
-md.push("");
-md.push(
-  "| stage | threshold | estOver | usageOver | churn× | calibrated(median) | same-fire-count T' | achieved | usage p50 | p90 | p95 | max |",
-);
-md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const c of cal) {
-  md.push(
-    `| ${c.stage} | ${stages.find((s) => s.name === c.stage).threshold} | ${c.estOver} | ${c.usageOver} | ${c.churn !== undefined ? c.churn.toFixed(1) : "n/a"} | ${fmtNum(c.calibrated)} | ${fmtNum(c.sameCount)} | ${fmtNum(c.sameCountAchieved)} | ${fmtPct(c.usageSorted, 0.5)} | ${fmtPct(c.usageSorted, 0.9)} | ${fmtPct(c.usageSorted, 0.95)} | ${fmtPct(c.usageSorted, 1)} |`,
-  );
-}
-md.push("");
-md.push(
-  `_Generated by \`scripts/analyze-token-estimation.mjs\`. Re-run any time to reproduce. See \`work_docs/issue-usage-based-token-counting.md\` for the plan._`,
-);
+  // ── observer input simulation (console) ───────────────────────────────────
+  if (obsSim.length > 0) {
+    const med = (arr) =>
+      arr.length ? arr[Math.floor(arr.length / 2)] : undefined;
+    const pct = (arr, p) =>
+      arr.length
+        ? arr[Math.min(arr.length - 1, Math.ceil(p * arr.length) - 1)]
+        : undefined;
+    const chunks = obsSim.map((r) => r.chunkTokens).sort((a, b) => a - b);
+    const trShares = obsSim
+      .map((r) => r.toolResultTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const thShares = obsSim
+      .map((r) => r.thinkingTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const saves = obsSim
+      .map((r) => 1 - r.trimmedTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const medChunk = med(chunks);
+    const medTrimmed = med(
+      obsSim.map((r) => r.trimmedTokens).sort((a, b) => a - b),
+    );
+    const fmtP = (v) => (v === undefined ? "n/a" : (100 * v).toFixed(0) + "%");
+    console.log(
+      `\n── Observer input simulation (chunk = entries since last marker, capped at observerChunkMaxTokens=${th.observerChunk}; head+tail trim ${TRIM.headChars}/${TRIM.tailChars} chars, threshold ${TRIM.thresholdChars} chars) ──`,
+    );
+    console.log(`windows with content: ${obsSim.length}`);
+    console.log(
+      `median chunk tokens: ${medChunk?.toLocaleString()} | tool_result share: ${fmtP(med(trShares))} | thinking share: ${fmtP(med(thShares))}`,
+    );
+    console.log(
+      `head+tail trim: median ${medChunk?.toLocaleString()} → ${medTrimmed?.toLocaleString()} tokens (median save ${fmtP(med(saves))}, p90 save ${fmtP(pct(saves, 0.9))})`,
+    );
+    console.log(
+      `note: provider usage (session context) is unchanged — trimming only reduces what the observer serializes upstream.`,
+    );
+  }
 
-mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
-writeFileSync(REPORT_PATH, md.join("\n") + "\n");
-console.log(`\nFull report written to ${REPORT_PATH}`);
+  // ── write full report file ────────────────────────────────────────────────
+  const md = [];
+  md.push("# Token estimation vs actual usage — algorithmic report");
+  md.push("");
+  md.push(
+    `- Command: \`node scripts/analyze-token-estimation.mjs${limit ? ` ${limit}` : ""}${useDefaults ? " --defaults" : ""}\``,
+  );
+  md.push(
+    `- Sessions analyzed: ${sessions.length} (unique, realpath-deduped) under \`${SESSIONS_DIR}\``,
+  );
+  md.push(
+    `- Thresholds (from global config): observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}`,
+  );
+  md.push(`- Generated: ${new Date().toISOString()}`);
+  md.push("");
+  md.push("## Per-window rows");
+  md.push("");
+  md.push(
+    "| stage | est | usage | ratio | marker | est>=thr | usage>=thr | session |",
+  );
+  md.push("|---|---|---|---|---|---|---|---|");
+  for (const r of rows) {
+    md.push(
+      `| ${r.stage} | ${r.est} | ${r.usage} | ${r.ratio !== undefined ? r.ratio.toFixed(2) : "n/a"} | ${r.marker} | ${r.estOver} | ${r.usageOver} | ${r.session} |`,
+    );
+  }
+  md.push("");
+  md.push("## Aggregate (ratios over marker-present, usage>0 windows)");
+  md.push("");
+  md.push(
+    "| stage | n | median | min | max | est>=thr | usage>=thr | marker | no-marker | no-usage | LATE | EARLY |",
+  );
+  md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const stage of stages) {
+    const a = agg[stage.name];
+    const ratios = [...a.ratios].sort((x, y) => x - y);
+    const med = ratios.length
+      ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
+      : "n/a";
+    const min = ratios.length ? ratios[0].toFixed(2) : "n/a";
+    const max = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
+    md.push(
+      `| ${stage.name} | ${ratios.length} | ${med} | ${min} | ${max} | ${a.estOver} | ${a.usageOver} | ${a.withMarker} | ${a.noMarker} | ${a.noUsage} | ${a.late} | ${a.early} |`,
+    );
+  }
+  md.push("");
+  md.push("## Calibration (planning input for default threshold bumps)");
+  md.push("");
+  md.push("Interpretation:");
+  md.push(
+    "- **churn×** = `usageOver / estOver` — how many more times the stage would fire under truthful counting with unchanged thresholds. This is the API-call/cost multiplier auto-install users would silently absorb.",
+  );
+  md.push(
+    "- **calibrated(median)** = `threshold × median(usage/est)` — the threshold preserving today's fire frequency on the median window.",
+  );
+  md.push(
+    "- **same-fire-count T'** = the **k-th largest** actual usage across windows (k = today's est fire count) — the threshold under truthful counting that reproduces today's total fire frequency. Achieved count is reported alongside (may exceed k on ties).",
+  );
+  md.push(
+    "- **usage p50/p90/p95/max** = distribution of actual usage at trigger-decision points. Planned default bumps should sit comfortably above p90/p95 to control churn for auto-install users (their models now run 256k–1M windows; see work_docs plan).",
+  );
+  md.push("");
+  md.push(
+    "| stage | threshold | estOver | usageOver | churn× | calibrated(median) | same-fire-count T' | achieved | usage p50 | p90 | p95 | max |",
+  );
+  md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const c of cal) {
+    md.push(
+      `| ${c.stage} | ${stages.find((s) => s.name === c.stage).threshold} | ${c.estOver} | ${c.usageOver} | ${c.churn !== undefined ? c.churn.toFixed(1) : "n/a"} | ${fmtNum(c.calibrated)} | ${fmtNum(c.sameCount)} | ${fmtNum(c.sameCountAchieved)} | ${fmtPct(c.usageSorted, 0.5)} | ${fmtPct(c.usageSorted, 0.9)} | ${fmtPct(c.usageSorted, 0.95)} | ${fmtPct(c.usageSorted, 1)} |`,
+    );
+  }
+  md.push("");
+  md.push(
+    `_Generated by \`scripts/analyze-token-estimation.mjs\`. Re-run any time to reproduce. See \`work_docs/issue-usage-based-token-counting.md\` for the plan._`,
+  );
+
+  // ── observer input simulation (report section) ────────────────────────────
+  if (obsSim.length > 0) {
+    const med = (arr) =>
+      arr.length ? arr[Math.floor(arr.length / 2)] : undefined;
+    const pct = (arr, p) =>
+      arr.length
+        ? arr[Math.min(arr.length - 1, Math.ceil(p * arr.length) - 1)]
+        : undefined;
+    const chunks = obsSim.map((r) => r.chunkTokens).sort((a, b) => a - b);
+    const trShares = obsSim
+      .map((r) => r.toolResultTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const thShares = obsSim
+      .map((r) => r.thinkingTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const saves = obsSim
+      .map((r) => 1 - r.trimmedTokens / r.chunkTokens)
+      .sort((a, b) => a - b);
+    const fmtP = (v) => (v === undefined ? "n/a" : (100 * v).toFixed(0) + "%");
+    md.push("");
+    md.push(
+      "## Observer input simulation (what the observer would send upstream)",
+    );
+    md.push("");
+    md.push(
+      `Chunk = source entries since the last observation marker, capped at \`observerChunkMaxTokens=${th.observerChunk}\` (mirrors capSourceEntriesToTokens). Role shares are chars/4 estimates of the serialized text (mirrors serialize.ts). Trim = head+tail policy (${TRIM.headChars}/${TRIM.tailChars} chars) applied only to tool results > ${TRIM.thresholdChars} chars. **Provider usage (session context) is unaffected — trimming only reduces the observer's own input volume.**`,
+    );
+    md.push("");
+    md.push(
+      "| session | chunk tokens | tool_result % | thinking % | trimmed tokens | save % |",
+    );
+    md.push("|---|---|---|---|---|---|");
+    for (const r of obsSim) {
+      md.push(
+        `| ${r.session} | ${r.chunkTokens} | ${((100 * r.toolResultTokens) / r.chunkTokens).toFixed(0)}% | ${((100 * r.thinkingTokens) / r.chunkTokens).toFixed(0)}% | ${r.trimmedTokens} | ${(100 * (1 - r.trimmedTokens / r.chunkTokens)).toFixed(0)}% |`,
+      );
+    }
+    md.push("");
+    md.push(
+      `Aggregate: median chunk ${med(chunks)?.toLocaleString()} tokens; median tool_result share ${fmtP(med(trShares))}; median thinking share ${fmtP(med(thShares))}; median save ${fmtP(med(saves))} (p90 ${fmtP(pct(saves, 0.9))}).`,
+    );
+  }
+
+  mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+  writeFileSync(REPORT_PATH, md.join("\n") + "\n");
+  console.log(`\nFull report written to ${REPORT_PATH}`);
+
+  return { th, sessions, stages, agg, rows, cal, obsSim, useDefaults, limit };
+}
+
+// ── summary writer (tracked review artifact in work_docs/) ────────────────
+// Runs BOTH config surfaces (author config + code defaults) and writes only
+// the math (aggregate, calibration, observer simulation) — no per-window rows.
+function writeSummary(primary, secondary, outPath) {
+  const med = (arr) =>
+    arr.length ? arr[Math.floor(arr.length / 2)] : undefined;
+  const pct = (arr, p) =>
+    arr.length
+      ? arr[Math.min(arr.length - 1, Math.ceil(p * arr.length) - 1)]
+      : undefined;
+  const fmtP = (v) => (v === undefined ? "n/a" : (100 * v).toFixed(0) + "%");
+  const fmtN = (v) => (v === undefined ? "n/a" : v.toLocaleString());
+
+  const surface = (run, title) => {
+    const { th, stages, agg, cal, obsSim } = run;
+    const lines = [];
+    lines.push(`## ${title}`);
+    lines.push("");
+    lines.push("### Aggregate (ratios over marker-present, usage>0 windows)");
+    lines.push("");
+    lines.push(
+      "| stage | threshold | n | median | min | max | est fires | usage fires | churn× | LATE | EARLY | marker | no-marker | no-usage |",
+    );
+    lines.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    for (const s of stages) {
+      const a = agg[s.name];
+      const ratios = [...a.ratios].sort((x, y) => x - y);
+      const medR = ratios.length
+        ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
+        : "n/a";
+      const minR = ratios.length ? ratios[0].toFixed(2) : "n/a";
+      const maxR = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
+      lines.push(
+        `| ${s.name} | ${s.threshold.toLocaleString()} | ${ratios.length} | ${medR} | ${minR} | ${maxR} | ${a.estOver} | ${a.usageOver} | ${(a.usageOver / a.estOver).toFixed(1)} | ${a.late} | ${a.early} | ${a.withMarker} | ${a.noMarker} | ${a.noUsage} |`,
+      );
+    }
+    lines.push("");
+    lines.push(
+      "### Calibration (usage threshold that reproduces today's fire frequency)",
+    );
+    lines.push("");
+    lines.push(
+      "| stage | threshold | same-fire-count T' | achieved | usage p50 | p90 | p95 | max |",
+    );
+    lines.push("|---|---|---|---|---|---|---|---|");
+    for (const c of cal) {
+      lines.push(
+        `| ${c.stage} | ${stages.find((s) => s.name === c.stage).threshold.toLocaleString()} | ${fmtN(c.sameCount)} | ${fmtN(c.sameCountAchieved)} | ${fmtN(percentile(c.usageSorted, 0.5))} | ${fmtN(percentile(c.usageSorted, 0.9))} | ${fmtN(percentile(c.usageSorted, 0.95))} | ${fmtN(percentile(c.usageSorted, 1))} |`,
+      );
+    }
+    lines.push("");
+    if (obsSim.length > 0) {
+      const chunks = obsSim.map((r) => r.chunkTokens).sort((a, b) => a - b);
+      const trShares = obsSim
+        .map((r) => r.toolResultTokens / r.chunkTokens)
+        .sort((a, b) => a - b);
+      const thShares = obsSim
+        .map((r) => r.thinkingTokens / r.chunkTokens)
+        .sort((a, b) => a - b);
+      const saves = obsSim
+        .map((r) => 1 - r.trimmedTokens / r.chunkTokens)
+        .sort((a, b) => a - b);
+      lines.push(
+        "### Observer input simulation (head+tail trim of oversized tool results)",
+      );
+      lines.push("");
+      lines.push(`- windows with content: ${obsSim.length}`);
+      lines.push(
+        `- median chunk: ${fmtN(med(chunks))} tokens | tool_result share: ${fmtP(med(trShares))} | thinking share: ${fmtP(med(thShares))}`,
+      );
+      lines.push(
+        `- trim ${TRIM.headChars}/${TRIM.tailChars} chars ≥ ${TRIM.thresholdChars}: median ${fmtN(med(chunks))} → ${fmtN(med(obsSim.map((r) => r.trimmedTokens).sort((a, b) => a - b)))} tokens (median save ${fmtP(med(saves))}, p90 ${fmtP(pct(saves, 0.9))})`,
+      );
+      lines.push("");
+    }
+    return lines.join("\n");
+  };
+
+  const md = [];
+  md.push("# Token estimation — calibration summary (review artifact)");
+  md.push("");
+  md.push(`- Generated: ${new Date().toISOString()}`);
+  md.push(
+    `- Sessions: ${primary.sessions.length} unique (realpath-deduped) under \`~/.pi/agent/sessions\``,
+  );
+  md.push(
+    `- Command: \`node scripts/analyze-token-estimation.mjs --summary ${outPath}\``,
+  );
+  md.push("- Full plan: \`work_docs/issue-usage-based-token-counting.md\`");
+  md.push(
+    "- Raw per-window reports (gitignored, regenerate with the script): \`tmp/token-estimation-report.md\` (author config), \`tmp/token-estimation-report-defaults.md\` (code defaults)",
+  );
+  md.push("");
+  md.push(
+    "Reading guide: **churn×** = how many more fires truthful counting produces with unchanged thresholds; **LATE** = windows where the trigger should have fired under truthful counting but didn't; **same-fire-count T'** = k-th largest actual usage with k = today's est fire count (reproduces today's frequency); **tool_result share** = share of the observer's serialized input that is tool-result text.",
+  );
+  md.push("");
+  md.push(
+    surface(
+      primary,
+      `Author's config (observe ${primary.th.observe.toLocaleString()} / reflect+drop ${primary.th.reflect.toLocaleString()} / compact ${primary.th.compact.toLocaleString()})`,
+    ),
+  );
+  md.push("");
+  md.push(
+    surface(
+      secondary,
+      `Code defaults (observe ${secondary.th.observe.toLocaleString()} / reflect+drop ${secondary.th.reflect.toLocaleString()} / compact ${secondary.th.compact.toLocaleString()} — auto-install surface)`,
+    ),
+  );
+  md.push("");
+  md.push(
+    `_Generated by \`scripts/analyze-token-estimation.mjs --summary\`. Re-run any time to reproduce._`,
+  );
+
+  mkdirSync(path.dirname(outPath), { recursive: true });
+  writeFileSync(outPath, md.join("\n") + "\n");
+  console.log(`Summary written to ${outPath}`);
+}
+
+// main
+const primary = analyzeOnce(useDefaults, limit);
+if (summaryPath) {
+  const secondary = analyzeOnce(!useDefaults, limit);
+  writeSummary(primary, secondary, summaryPath);
+}
