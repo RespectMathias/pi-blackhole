@@ -43,8 +43,10 @@
  * Output:
  *   - console: per-window table (first 70 rows) + aggregate + calibration
  *   - observer input simulation: what the observer would serialize upstream
- *     (role shares + head+tail trim of oversized tool results) — orthogonal
- *     to the counters, which use provider usage of the session context
+ *     (role shares + trimming of oversized tool results AND thinking blocks —
+ *     head+tail; tunable via --trim-head/--trim-tail/--trim-threshold and
+ *     --think-head-pct/--think-tail-pct/--think-threshold) — orthogonal to
+ *     the counters, which use provider usage of the session context
  *   - tmp/token-estimation-report.md (or -defaults.md): full report incl. ALL
  *     rows, per-stage aggregate, calibration table, usage distributions, and
  *     the observer simulation (reproducible).
@@ -71,6 +73,12 @@ const positional = args.find((a) => !a.startsWith("--"));
 const limit = positional && positional !== "all" ? Number(positional) || 0 : 0;
 const summaryArg = args.indexOf("--summary");
 const summaryPath = summaryArg >= 0 ? args[summaryArg + 1] : undefined;
+const flagNum = (name, def) => {
+  const hit = args.find((a) => a.startsWith(`--${name}=`));
+  if (!hit) return def;
+  const v = Number(hit.slice(`--${name}=`.length));
+  return Number.isFinite(v) && v > 0 ? v : def;
+};
 const OM_TYPES = {
   observations: "om.observations.recorded",
   reflections: "om.reflections.recorded",
@@ -79,13 +87,20 @@ const OM_TYPES = {
 const SOURCE_TYPES = new Set(["message", "custom_message", "branch_summary"]);
 const CONSOLE_ROW_CAP = 70;
 
-// Tool-result trim simulation parameters (head+tail policy, applied only to
-// the observer's serialized input — see plan doc; the provider usage numbers
-// that drive the counters are NOT affected).
+// Trim simulation parameters for the observer's serialized input (see plan
+// doc appendix; the provider usage numbers that drive the counters are NOT
+// affected — this only models what the observer serializes upstream).
+// Tunable via --trim-head=, --trim-tail=, --trim-threshold=,
+// --think-head-pct=, --think-tail-pct=, --think-threshold=.
 const TRIM = {
-  headChars: 2000,
-  tailChars: 2000,
-  thresholdChars: 4096, // only trim tool results larger than this
+  headChars: flagNum("trim-head", 1000),
+  tailChars: flagNum("trim-tail", 1000),
+  thresholdChars: flagNum("trim-threshold", 4096), // only trim tool results larger than this
+};
+const THINK = {
+  headPct: flagNum("think-head-pct", 20) / 100, // percent of block kept as head
+  tailPct: flagNum("think-tail-pct", 20) / 100,
+  thresholdChars: flagNum("think-threshold", 4096), // only trim thinking blocks larger than this
 };
 
 // ── config thresholds (global config, or built-in code defaults with --defaults)
@@ -380,6 +395,8 @@ function zeroBuckets() {
     summary: 0,
     toolResultChars: 0,
     toolResultTrimmedChars: 0,
+    thinkingChars: 0,
+    thinkingTrimmedChars: 0,
   };
 }
 
@@ -404,9 +421,22 @@ function classifyChunk(chunk) {
             else if (
               block?.type === "thinking" &&
               typeof block.thinking === "string"
-            )
-              b.thinking += est(block.thinking);
-            else if (block?.type === "toolCall")
+            ) {
+              const t = block.thinking;
+              b.thinking += est(t);
+              b.thinkingChars += t.length;
+              if (t.length > THINK.thresholdChars) {
+                const head = t.slice(0, Math.round(t.length * THINK.headPct));
+                const tail = t.slice(-Math.round(t.length * THINK.tailPct));
+                const dropped = t.length - head.length - tail.length;
+                b.thinkingTrimmedChars +=
+                  head.length +
+                  tail.length +
+                  `\n… [thinking truncated ${dropped} chars] …\n`.length;
+              } else {
+                b.thinkingTrimmedChars += t.length;
+              }
+            } else if (block?.type === "toolCall")
               b.toolCall += est(
                 (block.name ?? "") + JSON.stringify(block.arguments ?? {}),
               );
@@ -607,13 +637,19 @@ function analyzeOnce(useDefaults, limit) {
         b.custom +
         b.summary;
       const trimmedTokens =
-        chunkTokens - b.toolResult + Math.ceil(b.toolResultTrimmedChars / 4);
+        chunkTokens -
+        b.toolResult -
+        b.thinking +
+        Math.ceil(b.toolResultTrimmedChars / 4) +
+        Math.ceil(b.thinkingTrimmedChars / 4);
       if (chunkTokens > 0) {
         obsSim.push({
           session: name,
           chunkTokens,
           toolResultTokens: b.toolResult,
           thinkingTokens: b.thinking,
+          toolResultTrimmedTokens: Math.ceil(b.toolResultTrimmedChars / 4),
+          thinkingTrimmedTokens: Math.ceil(b.thinkingTrimmedChars / 4),
           trimmedTokens,
         });
       }
@@ -708,15 +744,29 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
       obsSim.map((r) => r.trimmedTokens).sort((a, b) => a - b),
     );
     const fmtP = (v) => (v === undefined ? "n/a" : (100 * v).toFixed(0) + "%");
+    const toolSaves = obsSim
+      .map((r) => 1 - r.toolResultTrimmedTokens / r.toolResultTokens)
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    const thinkSaves = obsSim
+      .map((r) => 1 - r.thinkingTrimmedTokens / r.thinkingTokens)
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
     console.log(
-      `\n── Observer input simulation (chunk = entries since last marker, capped at observerChunkMaxTokens=${th.observerChunk}; head+tail trim ${TRIM.headChars}/${TRIM.tailChars} chars, threshold ${TRIM.thresholdChars} chars) ──`,
+      `\n── Observer input simulation (chunk = entries since last marker, capped at observerChunkMaxTokens=${th.observerChunk}; tool-result trim ${TRIM.headChars}/${TRIM.tailChars} chars ≥ ${TRIM.thresholdChars}; thinking trim head+tail ${Math.round(THINK.headPct * 100)}%/${Math.round(THINK.tailPct * 100)}% ≥ ${THINK.thresholdChars} chars) ──`,
     );
     console.log(`windows with content: ${obsSim.length}`);
     console.log(
       `median chunk tokens: ${medChunk?.toLocaleString()} | tool_result share: ${fmtP(med(trShares))} | thinking share: ${fmtP(med(thShares))}`,
     );
     console.log(
-      `head+tail trim: median ${medChunk?.toLocaleString()} → ${medTrimmed?.toLocaleString()} tokens (median save ${fmtP(med(saves))}, p90 save ${fmtP(pct(saves, 0.9))})`,
+      `trim: median ${medChunk?.toLocaleString()} → ${medTrimmed?.toLocaleString()} tokens (combined median save ${fmtP(med(saves))}, p90 ${fmtP(pct(saves, 0.9))})`,
+    );
+    console.log(
+      `  · tool results: median ${fmtP(med(toolSaves))} of tool-result tokens saved (of the ~${fmtP(med(trShares))} share)`,
+    );
+    console.log(
+      `  · thinking: median ${fmtP(med(thinkSaves))} saved of thinking tokens (p90 ${fmtP(pct(thinkSaves, 0.9))}, p95 ${fmtP(pct(thinkSaves, 0.95))}, max ${fmtP(thinkSaves[thinkSaves.length - 1])})`,
     );
     console.log(
       `note: provider usage (session context) is unchanged — trimming only reduces what the observer serializes upstream.`,
@@ -818,13 +868,21 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
       .map((r) => 1 - r.trimmedTokens / r.chunkTokens)
       .sort((a, b) => a - b);
     const fmtP = (v) => (v === undefined ? "n/a" : (100 * v).toFixed(0) + "%");
+    const toolSaves = obsSim
+      .map((r) => 1 - r.toolResultTrimmedTokens / r.toolResultTokens)
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    const thinkSaves = obsSim
+      .map((r) => 1 - r.thinkingTrimmedTokens / r.thinkingTokens)
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
     md.push("");
     md.push(
       "## Observer input simulation (what the observer would send upstream)",
     );
     md.push("");
     md.push(
-      `Chunk = source entries since the last observation marker, capped at \`observerChunkMaxTokens=${th.observerChunk}\` (mirrors capSourceEntriesToTokens). Role shares are chars/4 estimates of the serialized text (mirrors serialize.ts). Trim = head+tail policy (${TRIM.headChars}/${TRIM.tailChars} chars) applied only to tool results > ${TRIM.thresholdChars} chars. **Provider usage (session context) is unaffected — trimming only reduces the observer's own input volume.**`,
+      `Chunk = source entries since the last observation marker, capped at \`observerChunkMaxTokens=${th.observerChunk}\` (mirrors capSourceEntriesToTokens). Role shares are chars/4 estimates of the serialized text (mirrors serialize.ts). Trim policy: tool results > ${TRIM.thresholdChars} chars → head+tail ${TRIM.headChars}/${TRIM.tailChars} chars; thinking blocks > ${THINK.thresholdChars} chars → head+tail ${Math.round(THINK.headPct * 100)}%/${Math.round(THINK.tailPct * 100)}% (fractional). **Provider usage (session context) is unaffected — trimming only reduces the observer's own input volume.**`,
     );
     md.push("");
     md.push(
@@ -838,7 +896,7 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
     }
     md.push("");
     md.push(
-      `Aggregate: median chunk ${med(chunks)?.toLocaleString()} tokens; median tool_result share ${fmtP(med(trShares))}; median thinking share ${fmtP(med(thShares))}; median save ${fmtP(med(saves))} (p90 ${fmtP(pct(saves, 0.9))}).`,
+      `Aggregate: median chunk ${med(chunks)?.toLocaleString()} tokens; median tool_result share ${fmtP(med(trShares))}; median thinking share ${fmtP(med(thShares))}; combined median save ${fmtP(med(saves))} (p90 ${fmtP(pct(saves, 0.9))}); of tool-result tokens median ${fmtP(med(toolSaves))} saved; of thinking tokens median ${fmtP(med(thinkSaves))} saved (p90 ${fmtP(pct(thinkSaves, 0.9))}, max ${fmtP(thinkSaves[thinkSaves.length - 1])}).`,
     );
   }
 
@@ -911,8 +969,16 @@ function writeSummary(primary, secondary, outPath) {
       const saves = obsSim
         .map((r) => 1 - r.trimmedTokens / r.chunkTokens)
         .sort((a, b) => a - b);
+      const toolSaves = obsSim
+        .map((r) => 1 - r.toolResultTrimmedTokens / r.toolResultTokens)
+        .filter((v) => Number.isFinite(v))
+        .sort((a, b) => a - b);
+      const thinkSaves = obsSim
+        .map((r) => 1 - r.thinkingTrimmedTokens / r.thinkingTokens)
+        .filter((v) => Number.isFinite(v))
+        .sort((a, b) => a - b);
       lines.push(
-        "### Observer input simulation (head+tail trim of oversized tool results)",
+        "### Observer input simulation (tool-result + thinking trimming)",
       );
       lines.push("");
       lines.push(`- windows with content: ${obsSim.length}`);
@@ -920,7 +986,10 @@ function writeSummary(primary, secondary, outPath) {
         `- median chunk: ${fmtN(med(chunks))} tokens | tool_result share: ${fmtP(med(trShares))} | thinking share: ${fmtP(med(thShares))}`,
       );
       lines.push(
-        `- trim ${TRIM.headChars}/${TRIM.tailChars} chars ≥ ${TRIM.thresholdChars}: median ${fmtN(med(chunks))} → ${fmtN(med(obsSim.map((r) => r.trimmedTokens).sort((a, b) => a - b)))} tokens (median save ${fmtP(med(saves))}, p90 ${fmtP(pct(saves, 0.9))})`,
+        `- trim policy: tool results > ${TRIM.thresholdChars} chars → head+tail ${TRIM.headChars}/${TRIM.tailChars} chars; thinking > ${THINK.thresholdChars} chars → head+tail ${Math.round(THINK.headPct * 100)}%/${Math.round(THINK.tailPct * 100)}% (fractional)`,
+      );
+      lines.push(
+        `- median ${fmtN(med(chunks))} → ${fmtN(med(obsSim.map((r) => r.trimmedTokens).sort((a, b) => a - b)))} tokens (combined median save ${fmtP(med(saves))}, p90 ${fmtP(pct(saves, 0.9))}); of tool-result tokens median ${fmtP(med(toolSaves))} saved; of thinking tokens median ${fmtP(med(thinkSaves))} saved`,
       );
       lines.push("");
     }

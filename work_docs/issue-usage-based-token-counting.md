@@ -193,7 +193,7 @@ The exact algorithms are already implemented and battle-tested in `scripts/analy
 
 - Adopting usage-delta counting **everywhere** (dropper/observer/reflector included, not just compaction) raises run frequency ~30–70% (their chars/4 counters undercount by 20–40%).
 - **Threshold bumps** (draft proposal above) bring frequency back to ≈ today's for default users.
-- **Tool-result trimming** (head+tail: first 2000 + last 2000 chars, only for results > 4096 chars — the `TRIM` policy in `scripts/analyze-token-estimation.mjs`, tunable) cuts per-run cost: median 15%, p90 49% of the observer's serialized input, which is ~51% tool-result text.
+- **Tool-result trimming** (head+tail: first **1000 + last 1000 chars**, only for results > 4096 chars — the `TRIM` policy in `scripts/analyze-token-estimation.mjs`, tunable via `--trim-head/--trim-tail/--trim-threshold`) **plus thinking-block trimming** (head+tail **20%/20%** for blocks > 4096 chars — 27k-char thinking blocks observed; tunable via `--think-head-pct/--think-tail-pct`). Combined effect on the observer's serialized input (which is ~51% tool-result text, ~22% thinking): **median 31% / p90 61% tokens saved** (tool results: median 51% of their tokens; thinking: median 1% but p90 48% / max 60% — a tail phenomenon that only matters in long sessions, but matters there a lot). Going tighter than 1000/1000 (e.g. 500/500) buys only ~3pp more (34% median) — **1000/1000 is the chosen default**, 500/500 is the aggressive option.
 - Net for default users: **≈ same run frequency, lower tokens per run, truthful thresholds.** Power users keep custom thresholds (their frequency rises — surfaced via B).
 
 ## References
