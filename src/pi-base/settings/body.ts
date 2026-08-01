@@ -762,6 +762,17 @@ export function createSettingsModalBody<F extends Field>(
     }
     const row = focusedRow();
 
+    if (row?.isEditing && matchesKey(data, "ctrl+c")) {
+      // ctrl+c always closes the modal, even mid-edit — otherwise a
+      // stuck editing state leaves the user with no way out.
+      if (isBuffered && isDirty()) {
+        mountConfirmSubmenu();
+      } else {
+        args.close();
+      }
+      return;
+    }
+
     if (row?.isEditing) {
       // While editing, only the renderer (and esc/enter) gets to see
       // input — cursor & nav keys are reserved for the inline editor.

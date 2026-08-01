@@ -386,49 +386,45 @@ export const numberRenderer: FieldRenderer<NumberField, number> = {
       return {};
     }
 
-    // Step-based: Enter/Space inline-edit the number, ←/→ fine-tune by step
+    // Step-based: ←/→ fine-tune by step (only when not editing — while
+    // editing those keys move the cursor). Everything else — Enter to
+    // start editing, typing, backspace, escape — goes to the inline
+    // string editor so editing mode is never a dead end.
     if (step !== undefined) {
-      if (matchesKey(data, "left")) {
-        return {
-          consumed: true,
-          commit: stepDown(row.value, step, row.field.min, row.field.max),
-        };
+      if (!args.isEditing) {
+        if (matchesKey(data, "left")) {
+          return {
+            consumed: true,
+            commit: stepDown(row.value, step, row.field.min, row.field.max),
+          };
+        }
+        if (matchesKey(data, "right")) {
+          return {
+            consumed: true,
+            commit: stepUp(row.value, step, row.field.min, row.field.max),
+          };
+        }
       }
-      if (matchesKey(data, "right")) {
-        return {
-          consumed: true,
-          commit: stepUp(row.value, step, row.field.min, row.field.max),
-        };
-      }
-      if (
-        matchesKey(data, "enter") ||
-        matchesKey(data, "return") ||
-        data === " "
-      ) {
-        return handleStringLikeKey<number>(
-          row.field.key,
-          String(row.value),
-          data,
-          args,
-          (buffer) => {
-            const trimmed = buffer.trim();
-            if (trimmed === "") throw new Error("Expected a number");
-            const parsed = Number(trimmed);
-            if (!Number.isFinite(parsed))
-              throw new Error(`Not a number: '${buffer}'`);
-            if (row.field.integer && !Number.isInteger(parsed))
-              throw new Error("Expected an integer");
-            if (typeof row.field.min === "number" && parsed < row.field.min)
-              throw new Error(`Must be ≥ ${row.field.min}`);
-            if (typeof row.field.max === "number" && parsed > row.field.max)
-              throw new Error(`Must be ≤ ${row.field.max}`);
-            if (values && !values.includes(parsed))
-              throw new Error(`Must be one of: ${values.join(", ")}`);
-            return parsed;
-          },
-        );
-      }
-      return {};
+      return handleStringLikeKey<number>(
+        row.field.key,
+        String(row.value),
+        data,
+        args,
+        (buffer) => {
+          const trimmed = buffer.trim();
+          if (trimmed === "") throw new Error("Expected a number");
+          const parsed = Number(trimmed);
+          if (!Number.isFinite(parsed))
+            throw new Error(`Not a number: '${buffer}'`);
+          if (row.field.integer && !Number.isInteger(parsed))
+            throw new Error("Expected an integer");
+          if (typeof row.field.min === "number" && parsed < row.field.min)
+            throw new Error(`Must be ≥ ${row.field.min}`);
+          if (typeof row.field.max === "number" && parsed > row.field.max)
+            throw new Error(`Must be ≤ ${row.field.max}`);
+          return parsed;
+        },
+      );
     }
 
     // Plain number: inline edit (current behavior)
