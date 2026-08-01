@@ -37,9 +37,15 @@ function createMockEnvironment() {
     registerCommand: vi.fn(
       (
         name: string,
-        def: { handler: (args: unknown, ctx: unknown) => Promise<void> },
+        def: {
+          handler: (args: unknown, ctx: unknown) => Promise<void>;
+          getArgumentCompletions?: (prefix: string) => Array<{ value: string }>;
+        },
       ) => {
         handlerMap.set(name, def.handler as any);
+        if (def.getArgumentCompletions) {
+          completionMap.set(name, def.getArgumentCompletions as any);
+        }
       },
     ),
     appendEntry: vi.fn((customType: string, data: unknown) => {
@@ -50,6 +56,10 @@ function createMockEnvironment() {
   const handlerMap = new Map<
     string,
     (args: unknown, ctx: unknown) => Promise<void>
+  >();
+  const completionMap = new Map<
+    string,
+    (prefix: string) => Array<{ value: string }>
   >();
 
   const runtime: any = {
@@ -105,6 +115,7 @@ function createMockEnvironment() {
     pi,
     runtime,
     handlerMap,
+    completionMap,
     makeHandlerArgs,
     compactCalls,
     appendEntryCalls,
@@ -130,6 +141,22 @@ describe("/blackhole command", () => {
         description: expect.stringContaining("Manual compact"),
       }),
     );
+  });
+
+  it("surfaces 'configure' and 'settings' as argument completions", () => {
+    const { pi, runtime, completionMap } = createMockEnvironment();
+    registerPiVccCommand(pi as any, runtime as any);
+
+    const completions = completionMap.get("blackhole")!("");
+    const values = completions.map((c) => c.value);
+    expect(values).toContain("settings");
+    expect(values).toContain("configure");
+
+    // Typing /blackhole config… should surface the configure alias
+    const configMatches = completionMap.get("blackhole")!("config").map(
+      (c) => c.value,
+    );
+    expect(configMatches).toEqual(["configure"]);
   });
 
   it("calls ctx.compact with PI_VCC_COMPACT_INSTRUCTION", async () => {

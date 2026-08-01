@@ -46,6 +46,10 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
           label: "Open configuration overlay [settings]",
         },
         {
+          value: "configure",
+          label: "Open configuration overlay [configure]",
+        },
+        {
           value: "cleanup",
           label: "Remove orphaned pending files [cleanup]",
         },
