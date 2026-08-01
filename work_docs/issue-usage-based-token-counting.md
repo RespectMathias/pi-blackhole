@@ -136,6 +136,30 @@ Interactions to check before finalizing:
 - Compaction vs pi's per-model hard limit: keep ~60–70% of the *model's* window, not the preset's label.
 - Whether the bump ships **atomically with the counting change** (recommended: cost-neutral adoption) or in a later release (existing users first see the 1.3–1.7× fire increase with their custom thresholds).
 
+### Worker input sizing vs session-context triggers (the upper-bound invariant)
+
+The tier calibration sizes **trigger** thresholds to the SESSION model's context (how much accumulates before a run is worthwhile). But the workers that ingest the accumulated transcript are **different, smaller models** — a 1M-window session model can easily have a 64–128k observer. If the observer's input exceeds the worker's own window, it must not run — but today's behavior is a **hard skip** (consolidation.ts L843/L1150/L1478: `estimatedInput + AGENT_LOOP_RESERVE (8k) > effectiveCtx → recordRetryableError + continue`), which means **no observations get made and the coverage marker never advances** — the backlog grows forever on small workers (e.g. a 64k worker with a 60k chunk + 8k reserve = 68k > 64k → perpetual skip → cooldown churn).
+
+Current knobs are fixed config numbers decoupled from the worker's actual window:
+- `observerChunkMaxTokens` (default 40k, author 60k), `reflectorInputMaxTokens` (80k/95k), `dropperInputMaxTokens` (80k/80k), `observerPreambleMaxTokens`, `dropperPressureThreshold` (0.7, relative to reflectorInputMaxTokens)
+
+`effectiveContextWindow()` (model-budget.ts) already resolves the worker's window from config-override → pi registry → 128k fallback, and the pre-checks already exist. What's missing is **deriving the caps from the worker window**.
+
+**Proposal — consolidate to one knob:**
+- Add a single `workerInputFraction` (default ~0.5): worker inputs may use at most this fraction of the worker model's effective context window.
+- Derived at runtime: `observerChunkMaxTokens = min(config cap, fraction × observer window)`; same for reflector/dropper inputs. Existing config caps become upper bounds only.
+- **No per-model churn:** swapping worker models, or a model release updating the registry, auto-adjusts the caps via the existing resolution chain. Users don't micromanage per-model numbers (models release monthly+).
+- Pre-checks remain as the hard safety net.
+
+**Conceptual separation (the "what is the trigger" trap):**
+- Trigger thresholds (`observeAfterTokens`/`reflectAfterTokens`/`compactAfterTokens`) = **session-context** numbers: "when has enough accumulated to make a run worthwhile" — sourced from the tier calibration.
+- Input caps (chunk/reflector/dropper input) = **worker-context** numbers: "how much can THIS worker ingest" — sourced from `workerInputFraction × worker window`.
+- Never overload one number to mean both — that is exactly how "what is actually the trigger" gets lost.
+
+**Coverage drain (fix the skip-forever failure):** with derived caps the observer always ingests as much as fits (capped chunk) and the `coversUpToId` marker advances per run, so a backlog larger than one ingest drains across multiple runs instead of blocking forever. Verify the multi-pass behavior in the observer loop (it already supports partial coverage via `record_observations`).
+
+**`dropperPressureThreshold`** already demonstrates the relative-knob pattern (pool ≥ 0.7 × reflectorInputMaxTokens); deriving reflectorInputMaxTokens keeps it coherent automatically.
+
 ## Key architectural insight: why the fork's function can't be reused verbatim for coverage
 
 - **Compaction**: pi *rebuilds* the context after compacting (summary + new messages). The last assistant message's usage after the compaction point therefore **is** "tokens since compaction". The fork's logic is correct as-is.
