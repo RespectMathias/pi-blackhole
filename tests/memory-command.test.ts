@@ -2,7 +2,16 @@
  * Tests for the /blackhole-memory command (status, view, full).
  */
 import { describe, it, expect, vi } from "vitest";
+
+// Never touch the real system clipboard in tests — the real
+// copyTextToClipboard spawns wl-copy/xclip/xsel and would overwrite
+// the user's actual clipboard with test fixture data.
+vi.mock("../src/om/clipboard.js", () => ({
+  copyTextToClipboard: vi.fn(async () => true),
+}));
+
 import { registerMemoryCommand } from "../src/commands/memory.js";
+import { copyTextToClipboard } from "../src/om/clipboard.js";
 import {
   observation,
   observationsRecordedEntry,
@@ -279,6 +288,9 @@ describe("/blackhole-memory command", () => {
     expect(msg).toContain("Reflections");
     expect(msg).toContain("Observations");
     expect(msg).toContain("Copied to clipboard.");
+    // The clipboard helper must be the mock — the real one spawns
+    // wl-copy/xclip/xsel and would overwrite the user's clipboard.
+    expect(copyTextToClipboard).toHaveBeenCalledTimes(1);
   });
 
   it("full mode renders all recorded observations and reflections", async () => {
