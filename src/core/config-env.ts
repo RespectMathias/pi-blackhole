@@ -106,4 +106,12 @@ export const DECLARATIVE_ENV_OVERRIDES: Record<string, EnvOverride> = {
       return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
     },
   },
+  // Float in (0, 1]
+  dropperPoolFullnessThreshold: {
+    var: "PI_BLACKHOLE_DROPPER_POOL_FULLNESS_THRESHOLD",
+    parse: (raw: string) => {
+      const n = Number.parseFloat(raw);
+      return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
+    },
+  },
 };

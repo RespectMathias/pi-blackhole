@@ -303,8 +303,9 @@ export function anyStageDue(
               ? poolTokens / config.observationsPoolMaxTokens
               : 0;
 
-          // Must have at least 10% fullness to consider dropper
-          if (fullnessVsPool < 0.1) return false;
+          // Must have at least dropperPoolFullnessThreshold fullness to consider dropper
+          if (fullnessVsPool < (config.dropperPoolFullnessThreshold ?? 0.1))
+            return false;
 
           // Pressure check: pool ≥ threshold × reflectorInputMaxTokens
           const pressure =
@@ -1504,6 +1505,7 @@ async function runDropperStage(
         observations: newObservations,
         existingObservationsSummary: existingObservationsSummary || undefined,
         budgetTokens: runtime.config.observationsPoolMaxTokens,
+        skipFullness: runtime.config.dropperPoolFullnessThreshold,
         maxTurns: runtime.config.agentMaxTurns,
         thinkingLevel: stageThinkingLevel(
           runtime,

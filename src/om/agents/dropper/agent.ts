@@ -42,6 +42,9 @@ interface RunDropperArgs {
   /** Compact summary of existing active observations for context. */
   existingObservationsSummary?: string;
   budgetTokens: number;
+  /** Minimum pool fullness (fraction of budget) before dropping is allowed.
+   *  Defaults to DROP_SKIP_FULLNESS (0.1) when unset. */
+  skipFullness?: number;
   signal?: AbortSignal;
   agentLoop?: typeof agentLoop;
   /** Optional custom stream function bypassing agentLoop's default streamSimple.
@@ -98,6 +101,7 @@ export function maxDropCountForPool(
   observations: readonly Observation[],
   observationTokens: number,
   budgetTokens: number,
+  skipFullness: number = DROP_SKIP_FULLNESS,
 ): number {
   const droppableCount = observations.filter(
     (observation) => observation.relevance !== "critical",
@@ -105,16 +109,15 @@ export function maxDropCountForPool(
   if (droppableCount === 0) return 0;
 
   const fullness = observationPoolFullness(observationTokens, budgetTokens);
-  if (fullness < DROP_SKIP_FULLNESS) return 0;
+  if (fullness < skipFullness) return 0;
 
   const cappedFullness = Math.min(
     DROP_MAX_FULLNESS,
-    Math.max(DROP_SKIP_FULLNESS, fullness),
+    Math.max(skipFullness, fullness),
   );
   const dropRatio =
     DROP_MIN_RATIO +
-    ((cappedFullness - DROP_SKIP_FULLNESS) /
-      (DROP_MAX_FULLNESS - DROP_SKIP_FULLNESS)) *
+    ((cappedFullness - skipFullness) / (DROP_MAX_FULLNESS - skipFullness)) *
       (DROP_MAX_RATIO - DROP_MIN_RATIO);
   return Math.max(1, Math.floor(droppableCount * dropRatio));
 }
@@ -212,6 +215,7 @@ export async function runDropper(
     reflections,
     observations,
     budgetTokens,
+    skipFullness,
     signal,
   } = args;
   if (observations.length === 0) return undefined;
@@ -226,6 +230,7 @@ export async function runDropper(
     observations,
     observationTokens,
     budgetTokens,
+    skipFullness,
   );
   const coverageById = reflectionCoverageMap(observations, reflections);
   const coverageSummaryByRelevance = summarizeCoverageByRelevance(

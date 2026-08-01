@@ -62,6 +62,12 @@ describe("V3 dropper agent", () => {
     // Below skip threshold (fullness < 0.10) → 0 drops
     expect(maxDropCountForPool(observations, 5, 100)).toBe(0);
 
+    // Custom skip threshold: fullness 0.05 ≥ 0.03 → allowed
+    expect(maxDropCountForPool(observations, 5, 100, 0.03)).toBe(1);
+
+    // Custom skip threshold: fullness 0.05 < 0.08 → 0 drops
+    expect(maxDropCountForPool(observations, 5, 100, 0.08)).toBe(0);
+
     // At budget (fullness = 1.0) → max ratio 0.50 → floor(10 × 0.50) = 5
     expect(maxDropCountForPool(observations, 100, 100)).toBe(5);
 
@@ -347,5 +353,26 @@ describe("V3 dropper agent", () => {
       }),
     ).resolves.toBeUndefined();
     expect(called).toBe(false);
+  });
+
+  it("runs the model when pool fullness meets a lower custom skip threshold", async () => {
+    let called = false;
+    const loop = fakeAgentLoop(() => {
+      called = true;
+    });
+
+    // 1 observation × 10 tokens, budget=200 → fullness=0.05 ≥ skipFullness(0.03)
+    await expect(
+      runDropper({
+        ...baseArgs,
+        observations: [
+          observation("aaaaaaaaaaaa", { relevance: "low", tokenCount: 10 }),
+        ],
+        budgetTokens: 200,
+        skipFullness: 0.03,
+        agentLoop: loop,
+      }),
+    ).resolves.toBeUndefined();
+    expect(called).toBe(true);
   });
 });

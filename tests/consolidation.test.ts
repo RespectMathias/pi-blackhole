@@ -149,6 +149,109 @@ describe("anyStageDue with cursors", () => {
     expect(anyStageDue(entries, runtime, undefined)).toBe(false);
   });
 
+  test("dropper due when pool fullness passes a lowered fullness threshold", async () => {
+    const { Runtime } = await import("../src/om/runtime.js");
+    const { anyStageDue } = await import("../src/om/consolidation.js");
+    const runtime = new Runtime();
+    runtime.config.observeAfterTokens = 100000;
+    runtime.config.reflectAfterTokens = 5;
+    runtime.config.observationsPoolMaxTokens = 100_000;
+    runtime.config.dropperPoolFullnessThreshold = 0.01; // 1%
+    runtime.config.dropperPressureThreshold = 0.7;
+    runtime.config.reflectorInputMaxTokens = 10_000; // pressure needs 7,000 — pool only has 1,400
+    // No dropper cursor → token condition is rawTokensSinceDropCoverage ≥ 5 (msg-1 ≈ 50 tokens).
+    // Pool: 2 obs × 700 = 1,400 / 100,000 = 1.4% ≥ 1% → dropper due.
+    // Reflector is silenced by advancing its cursor past all entries.
+    const entries = [
+      {
+        type: "message",
+        id: "msg-1",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "a".repeat(200) }],
+        },
+      },
+      {
+        type: "custom",
+        id: "obs-1",
+        customType: "om.observations.recorded",
+        data: {
+          coversUpToId: "msg-1",
+          observations: [
+            {
+              id: "aaaaaaaaaaaa",
+              content: "x".repeat(100),
+              timestamp: "2026-08-01T00:00:00.000Z",
+              relevance: "low",
+              sourceEntryIds: ["msg-1"],
+              tokenCount: 700,
+            },
+            {
+              id: "bbbbbbbbbbbb",
+              content: "y".repeat(100),
+              timestamp: "2026-08-01T00:00:00.001Z",
+              relevance: "medium",
+              sourceEntryIds: ["msg-1"],
+              tokenCount: 700,
+            },
+          ],
+        },
+      },
+    ];
+    runtime.advanceCursor("reflector", "obs-1", "skipped");
+    expect(anyStageDue(entries, runtime, undefined)).toBe(true);
+  });
+
+  test("dropper NOT due when pool fullness is below the configured threshold", async () => {
+    const { Runtime } = await import("../src/om/runtime.js");
+    const { anyStageDue } = await import("../src/om/consolidation.js");
+    const runtime = new Runtime();
+    runtime.config.observeAfterTokens = 100000;
+    runtime.config.reflectAfterTokens = 5;
+    runtime.config.observationsPoolMaxTokens = 100_000;
+    runtime.config.dropperPoolFullnessThreshold = 0.05; // 5% — pool at 1.4%
+    runtime.config.dropperPressureThreshold = 0.7;
+    runtime.config.reflectorInputMaxTokens = 10_000; // pressure needs 7,000 — pool only has 1,400
+    const entries = [
+      {
+        type: "message",
+        id: "msg-1",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "a".repeat(200) }],
+        },
+      },
+      {
+        type: "custom",
+        id: "obs-1",
+        customType: "om.observations.recorded",
+        data: {
+          coversUpToId: "msg-1",
+          observations: [
+            {
+              id: "aaaaaaaaaaaa",
+              content: "x".repeat(100),
+              timestamp: "2026-08-01T00:00:00.000Z",
+              relevance: "low",
+              sourceEntryIds: ["msg-1"],
+              tokenCount: 700,
+            },
+            {
+              id: "bbbbbbbbbbbb",
+              content: "y".repeat(100),
+              timestamp: "2026-08-01T00:00:00.001Z",
+              relevance: "medium",
+              sourceEntryIds: ["msg-1"],
+              tokenCount: 700,
+            },
+          ],
+        },
+      },
+    ];
+    runtime.advanceCursor("reflector", "obs-1", "skipped");
+    expect(anyStageDue(entries, runtime, undefined)).toBe(false);
+  });
+
   test("reflector due when new observation batches exist AND token threshold met", async () => {
     const { Runtime } = await import("../src/om/runtime.js");
     const { anyStageDue } = await import("../src/om/consolidation.js");

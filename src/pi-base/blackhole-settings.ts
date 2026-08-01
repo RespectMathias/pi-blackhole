@@ -235,6 +235,17 @@ export const config = new ConfigManager<UnifiedConfig>({
       step: 0.01,
     },
     {
+      key: "dropperPoolFullnessThreshold",
+      type: "number",
+      label: "Dropper pool fullness threshold",
+      description:
+        "Min observation-pool fullness (fraction of pool max) before the dropper runs (0-1, default 0.10)",
+      value: cfg.dropperPoolFullnessThreshold,
+      min: 0.01,
+      max: 1,
+      step: 0.01,
+    },
+    {
       key: "agentMaxTurns",
       type: "number",
       label: "Max turns per agent",
@@ -379,6 +390,18 @@ export const config = new ConfigManager<UnifiedConfig>({
       dpt > 1
     ) {
       merged.dropperPressureThreshold = DEFAULTS.dropperPressureThreshold;
+    }
+
+    // dropperPoolFullnessThreshold — must be in (0, 1]
+    const dpf = merged.dropperPoolFullnessThreshold;
+    if (
+      typeof dpf !== "number" ||
+      !Number.isFinite(dpf) ||
+      dpf <= 0 ||
+      dpf > 1
+    ) {
+      merged.dropperPoolFullnessThreshold =
+        DEFAULTS.dropperPoolFullnessThreshold;
     }
 
     // observationsPoolTargetTokens — must be < max

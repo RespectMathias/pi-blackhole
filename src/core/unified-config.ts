@@ -126,6 +126,10 @@ export interface UnifiedConfig {
    *  observations/reflections (to keep the pool pruned).
    *  Default 0.70 (70%). Must be in range (0, 1]. */
   dropperPressureThreshold: number;
+  /** Minimum observation-pool fullness (fraction of observationsPoolMaxTokens)
+   *  before the dropper may run. Prevents churn on a nearly empty pool.
+   *  Default 0.10 (10%). Must be in range (0, 1]. */
+  dropperPoolFullnessThreshold: number;
   /** Max source entries tokens sent to observer per chunk. */
   observerChunkMaxTokens: number;
   /** Max preamble tokens (CURRENT REFLECTIONS / OBSERVATIONS) in the observer prompt.
@@ -187,6 +191,7 @@ export const DEFAULTS: UnifiedConfig = {
   reflectorInputMaxTokens: 80_000,
   dropperInputMaxTokens: 80_000,
   dropperPressureThreshold: 0.7,
+  dropperPoolFullnessThreshold: 0.1,
   observerChunkMaxTokens: 40_000,
   observerPreambleMaxTokens: 0,
   agentMaxTurns: 16,
@@ -329,6 +334,15 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
     raw.dropperPressureThreshold <= 1
   ) {
     c.dropperPressureThreshold = raw.dropperPressureThreshold;
+  }
+  // dropperPoolFullnessThreshold: fractional, must be in (0, 1]
+  if (
+    typeof raw.dropperPoolFullnessThreshold === "number" &&
+    Number.isFinite(raw.dropperPoolFullnessThreshold) &&
+    raw.dropperPoolFullnessThreshold > 0 &&
+    raw.dropperPoolFullnessThreshold <= 1
+  ) {
+    c.dropperPoolFullnessThreshold = raw.dropperPoolFullnessThreshold;
   }
   for (const k of numKeys) {
     // observerPreambleMaxTokens accepts 0 (auto-compute); everything else must be > 0

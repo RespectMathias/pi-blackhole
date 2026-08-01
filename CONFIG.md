@@ -38,6 +38,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "observerChunkMaxTokens": 40000, // Max source tokens per observer chunk
   "observerPreambleMaxTokens": 0,  // Preamble budget (0 = auto 30% of chunk)
   "dropperPressureThreshold": 0.70, // Pool-pressure relief valve
+  "dropperPoolFullnessThreshold": 0.10, // Min pool fullness before dropper runs
   "agentMaxTurns": 16,            // Max turns per memory agent
 
   // ── Model configs (edit by hand) ──
@@ -281,6 +282,14 @@ Fraction of `reflectorInputMaxTokens` at which the dropper runs even without new
 |------|---------|-------|
 | number | 0.70 | (0, 1] |
 
+### `dropperPoolFullnessThreshold`
+
+Minimum observation-pool fullness (fraction of `observationsPoolMaxTokens`) before the dropper may run. Prevents the dropper from churning a nearly empty pool. Once the pool passes this threshold, the dropper runs when enough new transcript accumulates (`reflectAfterTokens`) with new observations/reflections. Lower it (e.g. `0.05`) to have the dropper prune more eagerly on lean pools.
+
+| Type | Default | Range |
+|------|---------|-------|
+| number | 0.10 | (0, 1] |
+
 - **0.70** (default): dropper fires when pool reaches 70% of `reflectorInputMaxTokens` — leaves 30% headroom for system prompts, tool scaffolding, and reflection summaries
 - **Higher** (e.g. 0.90): less aggressive pruning, more headroom needed from your model
 - **Lower** (e.g. 0.50): more aggressive pruning, useful with smaller models or free-tier context windows
@@ -418,6 +427,7 @@ Float field (must be in `(0, 1]`):
 | Variable | Overrides |
 |----------|-----------|
 | `PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD` | `dropperPressureThreshold` |
+| `PI_BLACKHOLE_DROPPER_POOL_FULLNESS_THRESHOLD` | `dropperPoolFullnessThreshold` |
 
 ### Paths and internals
 
