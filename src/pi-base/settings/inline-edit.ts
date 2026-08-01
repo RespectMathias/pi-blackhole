@@ -24,7 +24,7 @@
  * input would be the wrong kind of input to this editor anyway.
  */
 
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey, decodeKittyPrintable } from "@earendil-works/pi-tui";
 
 /** Shared yank buffer for storing killed text. */
 let yankBuffer = "";
@@ -170,7 +170,10 @@ export function deleteInlineRange(
 
 /** Heuristic: is `data` a single, plain printable input character? */
 export function isPlainSearchInput(data: string): boolean {
-  return data.length === 1 && data >= " " && data !== "\x7f";
+  // Kitty terminals report printable characters as CSI-u sequences
+  // (e.g. "5" arrives as \x1b[53u). Decode them so typing works there.
+  const decoded = decodeKittyPrintable(data) ?? data;
+  return decoded.length === 1 && decoded >= " " && decoded !== "\x7f";
 }
 
 /**
@@ -269,7 +272,11 @@ export function handleInlineEditInput(
     return true;
   }
   if (isPlainSearchInput(data)) {
-    insertInlineText(editing, data);
+    // Kitty terminals deliver printable chars as CSI-u sequences —
+    // decode them so the decoded char (not the raw escape bytes) is
+    // inserted into the buffer.
+    const decoded = decodeKittyPrintable(data) ?? data;
+    insertInlineText(editing, decoded);
     return true;
   }
   return false;

@@ -71,34 +71,50 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
         return;
       }
       if (trimmed === "om-off") {
-        config.save(
-          { ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: false },
-          "global",
-          ctx.cwd,
-          GLOBAL_CONFIG_DIR,
-        );
-        runtime.config = config.loadWithWarnings(
-          ctx.cwd,
-          GLOBAL_CONFIG_DIR,
-        ).config;
-        ctx.ui.notify(
-          "Observational memory disabled. Use /blackhole om-on to re-enable.",
-          "info",
-        );
+        try {
+          config.save(
+            { ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: false },
+            "global",
+            ctx.cwd,
+            GLOBAL_CONFIG_DIR,
+          );
+          runtime.config = config.loadWithWarnings(
+            ctx.cwd,
+            GLOBAL_CONFIG_DIR,
+          ).config;
+          ctx.ui.notify(
+            "Observational memory disabled. Use /blackhole om-on to re-enable.",
+            "info",
+          );
+        } catch {
+          ctx.ui.notify(
+            "Failed to save config — the config file may be read-only (e.g., managed by Nix). " +
+              "Runtime state updated for this session only.",
+            "warning",
+          );
+        }
         return;
       }
       if (trimmed === "om-on") {
-        config.save(
-          { ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: true },
-          "global",
-          ctx.cwd,
-          GLOBAL_CONFIG_DIR,
-        );
-        runtime.config = config.loadWithWarnings(
-          ctx.cwd,
-          GLOBAL_CONFIG_DIR,
-        ).config;
-        ctx.ui.notify("Observational memory enabled.", "info");
+        try {
+          config.save(
+            { ...config.load(ctx.cwd, GLOBAL_CONFIG_DIR), memory: true },
+            "global",
+            ctx.cwd,
+            GLOBAL_CONFIG_DIR,
+          );
+          runtime.config = config.loadWithWarnings(
+            ctx.cwd,
+            GLOBAL_CONFIG_DIR,
+          ).config;
+          ctx.ui.notify("Observational memory enabled.", "info");
+        } catch {
+          ctx.ui.notify(
+            "Failed to save config — the config file may be read-only (e.g., managed by Nix). " +
+              "Runtime state updated for this session only.",
+            "warning",
+          );
+        }
         return;
       } // Warn if input starts with a known subcommand but isn't an exact match.
       // Prevents "/blackhole configure foo" from silently becoming a follow-up.
