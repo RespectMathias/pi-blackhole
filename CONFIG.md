@@ -507,5 +507,5 @@ Float field (must be in `(0, 1]`):
 ## Viewing & Editing
 
 - **Config file**: `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`
-- **TUI overlay**: `/blackhole configure` — opens an interactive overlay with ↑↓ navigation, Enter to toggle, Ctrl+S to save
+- **TUI overlay**: `/blackhole settings` (alias: `/blackhole configure`) — opens an interactive overlay with ↑↓ navigation, Enter to toggle, Ctrl+S to save
 - **CLI subcommands**: `/blackhole om-off` / `/blackhole om-on` — toggle memory without editing the file

@@ -37,18 +37,17 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 
   pi.registerCommand("blackhole", {
     description:
-      "Compact conversation — structured summary (with observational memory when enabled). " +
-      "Subcommands: [configure] settings overlay, [cleanup] remove orphaned files, " +
-      "[om-off] / [om-on] disable / re-enable memory.",
+      "Manual compact with structural summary. Subcommands: [settings] config overlay, " +
+      "[cleanup] remove orphaned files, [om-off]/[om-on] disable/enable observational memory.",
     getArgumentCompletions: (prefix: string) => {
       const subcommands = [
         {
-          value: "configure",
-          label: "Open configuration overlay to edit settings [configure]",
+          value: "settings",
+          label: "Open configuration overlay [settings]",
         },
         {
           value: "cleanup",
-          label: "Find and remove orphaned pending files [cleanup]",
+          label: "Remove orphaned pending files [cleanup]",
         },
         { value: "om-off", label: "Disable observational memory [om-off]" },
         { value: "om-on", label: "Enable observational memory [om-on]" },
@@ -61,8 +60,8 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
 
       // Handle subcommands
       const trimmed = (typeof args === "string" ? args : "").trim();
-      if (trimmed === "configure") {
-        // Open the config overlay
+      if (trimmed === "configure" || trimmed === "settings") {
+        // Open the config overlay ("configure" kept as a hidden alias)
         await openBlackholeSettings(ctx);
         return;
       }
@@ -118,7 +117,13 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
         return;
       } // Warn if input starts with a known subcommand but isn't an exact match.
       // Prevents "/blackhole configure foo" from silently becoming a follow-up.
-      const SUBCOMMAND_NAMES = ["configure", "cleanup", "om-off", "om-on"];
+      const SUBCOMMAND_NAMES = [
+        "configure",
+        "settings",
+        "cleanup",
+        "om-off",
+        "om-on",
+      ];
       const nearMiss = SUBCOMMAND_NAMES.find(
         (name) =>
           trimmed.toLowerCase().startsWith(name.toLowerCase()) &&

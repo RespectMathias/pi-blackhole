@@ -127,7 +127,7 @@ describe("/blackhole command", () => {
     expect(pi.registerCommand).toHaveBeenCalledWith(
       "blackhole",
       expect.objectContaining({
-        description: expect.stringContaining("Compact"),
+        description: expect.stringContaining("Manual compact"),
       }),
     );
   });
@@ -344,6 +344,18 @@ describe("/blackhole follow-up prompt", () => {
     await handlerMap.get("blackhole")!("configure", ctx);
 
     // Should NOT compact — subcommand handled separately
+    expect(ctx.compact).not.toHaveBeenCalled();
+  });
+
+  it("treats 'settings' as an alias for 'configure'", async () => {
+    const { pi, runtime, handlerMap, makeHandlerArgs } =
+      createMockEnvironment();
+    registerPiVccCommand(pi as any, runtime as any);
+
+    const ctx = makeHandlerArgs();
+    await handlerMap.get("blackhole")!("settings", ctx);
+
+    // Should open the config overlay (like configure), not compact
     expect(ctx.compact).not.toHaveBeenCalled();
   });
 
