@@ -1,15 +1,15 @@
 # Issue: chars/4 token estimation underreports actual usage — compaction & coverage triggers fire late
 
 **Date:** 2026-08-01
-**Status:** Investigation complete — evidence collected, fix designed, **not yet implemented** (pending review in a fresh session)
+**Status:** Investigation complete — evidence collected over the **full session archive (698 unique sessions)**; fix designed; default-threshold calibration planned. **Planning only — no code changes yet** (significant refactor with cost/churn implications for auto-install users).
 **Scope:** `src/om/ledger/progress.ts`, `src/om/tokens.ts`, `src/om/compaction-trigger.ts`, `src/om/consolidation.ts` (due-checks), `src/commands/memory.ts` (status display)
-**Reproduce:** `node scripts/analyze-token-estimation.mjs 20`
+**Reproduce:** `node scripts/analyze-token-estimation.mjs` (all sessions → `tmp/token-estimation-report.md`) or `--defaults` (code-default thresholds → `tmp/token-estimation-report-defaults.md`)
 
 ---
 
 ## Summary
 
-All of our pipeline triggers estimate token counts with a chars/4 heuristic (`estimateTokens` from `@earendil-works/pi-coding-agent` for messages, `chars/4` for strings). Across 20 real sessions this estimate **underreports actual model usage by ~20–35% on median** — and up to 2–4× in individual sessions. Consequences:
+All of our pipeline triggers estimate token counts with a chars/4 heuristic (`estimateTokens` from `@earendil-works/pi-coding-agent` for messages, `chars/4` for strings). Across the **full session archive (698 unique sessions)** this estimate **underreports actual model usage by ~20%–39% on median per stage** — and far worse in individual windows (up to 75×). Consequences:
 
 - **Auto-compaction** (`rawTokensSinceLastCompaction >= compactAfterTokens`): with defaults (81k threshold vs pi's ~84.5k hard limit), the estimate can **never reach the threshold before the hard limit** — auto-compaction effectively never fires proactively, only as an emergency at the context ceiling.
 - **Observer/reflector/dropper coverage counters** (`rawTokensSince*Coverage >= reflect/observeAfterTokens`): fire late — in the live pi-blackhole-dev session the observer counter read ~22k while **actual new content since the last run was ~42k** (1.9× under).
@@ -66,7 +66,7 @@ compaction n= 15  est/usage median=0.68 min=0.00 max=1.05 | est>=thr:0 usage>=th
 - The `7.99` outlier is a degenerate edge: observer marker sitting immediately before the last compaction (window = summary + tiny tail, usage-delta includes pre-compaction context). Minor, not representative.
 - The `dropper` row has no marker-present windows — drop markers are essentially never written (only 1 in 20 sessions), which is itself the separate dropper-gating issue (see docs/ or session notes on `dropperPoolFullnessThreshold`).
 
-### Illustrative rows (live pi-blackhole-dev session, 2026-07-31T21-44-51-190Z)
+### Illustrative rows (live pi-blackhole-dev session, 2026-07-31T21-44-51-190Z — snapshot; the session is live and growing)
 
 ```
 observer      31619     53577   0.59  ...   est>=thr: true   usage>=thr: true
@@ -75,6 +75,60 @@ compaction   170010    223969   0.76  ...   est>=thr: false  usage>=thr: true
 ```
 
 The reflector counter reads 75k (under 80k → not due) while actual is ~102k — the reflector was silently overdue. This matches the manual check: chars/4 ≈ 17.5k vs usage-delta ≈ 49.8k for the observer window.
+
+### Full-universe algorithmic run (698 sessions)
+
+`scripts/analyze-token-estimation.mjs` (no arg = **all** unique sessions, realpath-deduped) is now the reproducible reference: it replays both counting methods over the whole archive and writes a full report (every window, aggregate, calibration) to `tmp/`. `tmp/` is gitignored; the reports regenerate on demand.
+
+**Primary basis — the author's actual config** (observe 25k / reflect+drop 80k / compact 185k; stable for weeks, defaults never used — config has no `dropAfterTokens`, so dropper inherits `reflectAfterTokens`):
+
+| stage | n marker-windows | est/usage median | est fires | usage fires | churn× | LATE | EARLY | same-fire-count T' |
+|---|---|---|---|---|---|---|---|---|
+| observer | 243 | 0.80 | 297 | 377 | **1.3** | 98 | 18 | ~36.3k |
+| reflector | 176 | 0.82 | 98 | 165 | **1.7** | 77 | 11 | ~99.3k |
+| dropper | 5 | 0.61 | 191 | 286 | **1.5** | 109 | 15 | ~103.2k |
+| compaction | 339 | 0.61 | 3 | 22 | **7.3** | 20 | 1 | ~262k |
+
+Actual usage at trigger-decision points: observer p50 31.8k / p90 110.8k / p95 130k / max 238k; reflector p50 40.9k / p90 114.4k / p95 131.4k; dropper p50 66.9k / p90 141.8k / p95 163.7k; compaction p50 67k / p90 143.5k / p95 167.6k.
+
+Read: est underreports ~20% (observer/reflector) to ~39% (dropper/compaction) on median. **LATE** = windows where the trigger should have fired under truthful counting but didn't (98 missed observer runs, 109 missed dropper runs). **churn×** = how many more fires truthful counting produces with unchanged thresholds. Coverage stages: **1.3–1.7× more calls** — not the feared 2–3×, because est already fires a lot (observer crosses 25k in 43% of windows). Compaction: 7.3× but from a base of 3 fires (and auto-compaction is `off` in this config anyway).
+
+**Secondary surface — code defaults** (15k/25k/25k/81k, what auto-install users get): churn 1.2–1.6×; same-fire-count T' observer ~23.6k, reflector ~36.3k, dropper ~40.1k, compaction ~108.2k. Note compaction est fires 172× at the default 81k vs 3× at the author's 185k — the shipped default compacts ~57× more often than the author's setup; any default bump directly moves that.
+
+## Context-window evolution & cost-safety (planning addendum)
+
+**Context windows have grown materially in the last year.** The minimum coding-agent context sits around **256k**; most frontier models run **1M**; only local coder models top out at **~128k**. The shipped presets predate this:
+
+| preset | README target | observe | reflect/drop | compact |
+|---|---|---|---|---|
+| low | ~32–64k | 5k | 10k | 30k |
+| medium (default) | ~128k | 15k | 25k | 81k |
+| high | ~200k+ | 20k | 40k | 180k |
+
+**Cost framing.** The extension is used by **hundreds to thousands of users** — and the majority are **not** on free models: they use **real, expensive API keys** and rely on **auto-compaction heavily** (the author's own config, with `compaction: off` and free-tier fallback chains, is the *cheap* outlier, not the norm). For that majority:
+
+- Truthful counting with unchanged thresholds means 1.3–1.7× more observer/reflector/dropper calls — a silent **30–70% increase in paid token spend per session**. At thousands of users this is a real, ongoing cost change shipped without consent.
+- **Auto-compaction is a core, frequently-hit feature for them** — and it is exactly the stage with the worst underreporting (median est/usage 0.61) and the most dramatic churn (7.3× at 185k; at the default 81k the est counter already fires 172× and truthful counting raises it further). A compaction fix that fires meaningfully earlier than before is a *cost increase on every long session* for these users — but it also protects them from hitting hard context limits, which is the point of the feature.
+- This is why the fork's surface is deliberately *smaller*: it only fixes **compaction** (rare-ish, high-value context-safety) rather than the **chatty coverage workers** (observer/reflector/dropper fire on a large fraction of sessions). The usage-delta change for coverage stages is the part that needs cost-mitigation design — for paid users it is the dominant cost lever.
+
+For the author specifically the cost is not dollars — every worker model in the fallback chains is free-tier (OpenRouter/Cerebras/stepfun/z.ai) — but **free-tier rate limits and fallback churn**: more fires → more 429s → more cooldown cycling.
+
+**Decision (proposed, not implemented):** ship truthful counting **together with** default threshold bumps (at least the medium and high presets) so the fire frequency users actually experience stays roughly constant, and document the change in **CONFIG.md, llms.txt, README.md** so auto-install users are not surprised. Draft numbers in the next section are discussion inputs only.
+
+## Draft default-bump proposal (discussion inputs — not decided)
+
+Method: combine (a) the same-fire-count calibration (the threshold that reproduces today's fire count under truthful counting: defaults observer ~23.6k, reflector ~36.3k, dropper ~40.1k, compaction ~108.2k) with (b) the README's 60–70%-of-context compaction rule, re-targeted to 2026 context sizes. Values are deliberately left open for a decision session.
+
+| preset | new target | observe | reflect/drop | compact | rationale |
+|---|---|---|---|---|---|
+| low (local coder models) | ~128k | ~10k | ~20k | ~85k (67% of 128k) | retarget from 32–64k to the real local ceiling; the 128k presets are the new minimum, not the default |
+| medium (default) | ~256k | ~30k | ~50k | ~160k (63% of 256k) | new minimum coding-agent window; sits above same-fire counts → *fewer* fires than today's defaults |
+| high | ~1M | ~60k | ~120k | ~600k (60% of 1M) | frontier models; compaction becomes a true ceiling guard on huge windows |
+
+Interactions to check before finalizing:
+- `observeAfterTokens` vs `observerChunkMaxTokens` (default 40k) — observe can't meaningfully exceed chunk size.
+- Compaction vs pi's per-model hard limit: keep ~60–70% of the *model's* window, not the preset's label.
+- Whether the bump ships **atomically with the counting change** (recommended: cost-neutral adoption) or in a later release (existing users first see the 1.3–1.7× fire increase with their custom thresholds).
 
 ## Key architectural insight: why the fork's function can't be reused verbatim for coverage
 
@@ -97,22 +151,24 @@ Both baselines are provider-accurate (model tokenizer), so the pre-marker contex
    - `rawTokensSinceCoverage` (shared by all three coverage counters) → usage-delta logic; chars/4 fallback.
 3. **Tests** — extend `tests/session-ledger-progress.test.ts` (usage-aware, delta, and fallback paths).
 4. One commit on `dev`, attributing `tavasti@360f24a`.
+5. **Default threshold bumps + docs (same release, separate commit)** — raise the medium/high presets per the draft proposal; update CONFIG.md (threshold tables + env vars), llms.txt (context-size presets), README.md (Configuration presets + tuning guidance). Ship atomically with the counting change so auto-install users see a roughly constant fire frequency, not a silent 1.3–1.7× spend increase.
 
 The exact algorithms are already implemented and battle-tested in `scripts/analyze-token-estimation.mjs` (`usageSinceLastCompaction`, `usageDeltaSinceCoverage`).
 
 ## Risks / behavior changes (accept consciously)
 
-- **Stages fire earlier in real terms** (observer/reflector/dropper roughly 1.3–2.9× more often). Thresholds become "actual context tokens" as the config literally says. With free-model fallback chains + cooldowns, expect more runs / more cooldown churn; consider raising thresholds after adopting.
+- **Stages fire earlier in real terms**: with unchanged thresholds, algorithmic churn is **1.3–1.7× for coverage stages** (observer 1.3, reflector 1.7, dropper 1.5) and **7.3× for compaction** (from a base of 3 fires at 185k). Default bumps (draft proposal above) are the mitigation so auto-install users see roughly constant frequency. Thresholds become "actual context tokens" as the config literally says. With free-model fallback chains + cooldowns, expect more runs / more cooldown churn; consider raising thresholds after adopting.
 - **Provider dependence**: some providers/models don't populate `usage` — the chars/4 fallback keeps those sessions on old behavior. `hasUsageData` skips zero/absent usage.
 - **Status display** (`/blackhole-memory`) will show usage-accurate numbers — the "triggers at X" readouts become truthful.
 - The user's current session is at ~224k actual context with `compactAfterTokens: 185000` — after the fix, auto-compaction (if re-enabled) fires at 185k actual instead of never.
 
 ## Open questions for the next session
 
-1. Adopt the fork's compaction fix as-is, or also fold in the coverage-delta (this writeup's proposal)? Recommended: both, one commit.
+1. Adopt the fork's compaction fix as-is, or also fold in the coverage-delta (this writeup's proposal)? Recommended: both, one commit — but see (5): given the paid-user base, a **staged rollout** (compaction fix alone first — fork's scope, minimal cost surface — then coverage-delta with the threshold bumps) is worth considering.
 2. Should the usage-delta live in `rawTokensSinceCoverage` (affects observer+reflector+dropper at once) or be opt-in per stage? Recommended: shared.
-3. Threshold re-tuning after adoption — observe the new fire frequency for a few sessions before bumping.
+3. Exact new default values for medium/high presets (draft in the proposal section; decide after a decision session).
 4. `dropperPoolFullnessThreshold` (added 2026-08-01, default 0.1, user set 0.05) interacts here: dropper fires on pool fullness + new-data, and the new-data check uses `rawTokensSinceDropCoverage >= reflectAfterTokens` — usage-accurate counting changes that too.
+5. **Cost-sign-off for the user base**: the majority run paid keys and rely on auto-compaction. Confirm the fire-frequency targets (constant, or slightly lower for cost headroom) before shipping; document the change so users can re-tune.
 
 ## References
 

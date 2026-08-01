@@ -19,12 +19,37 @@
  *                 (Needed because coverage markers sit mid-context; the last usage
  *                 alone would report the whole context, not "since the marker".)
  *
- * Usage: node scripts/analyze-token-estimation.mjs [N]
- *   N = number of most-recent session files to analyze (default 20).
+ * Beyond the raw comparison it computes an algorithmic calibration surface for
+ * planning default threshold bumps (see work_docs/issue-usage-based-token-counting.md):
+ *   - churn multiplier: how many more times each stage would fire under truthful
+ *     counting with unchanged thresholds (usageOver / estOver);
+ *   - same-fire-count threshold: the usage threshold T' whose firing frequency
+ *     equals today's est-based frequency (largest T' with count(usage >= T')
+ *     <= count(est >= T_current));
+ *   - usage distribution percentiles (p50/p75/p90/p95/max) per stage, the raw
+ *     material for generation-aware preset proposals.
  *
- * See work_docs/issue-usage-based-token-counting.md for the full writeup.
+ * Usage: node scripts/analyze-token-estimation.mjs [N] [--defaults]
+ *   N = number of most-recent session files to analyze.
+ *   Omit N (or pass "all") to analyze EVERY unique session (realpath-deduped).
+ *   --defaults = evaluate with the built-in code defaults (observe 15k /
+ *                reflect+drop 25k / compact 81k) instead of the user's global
+ *                config values — the surface an auto-install user gets.
+ *
+ * Output:
+ *   - console: per-window table (first 70 rows) + aggregate + calibration
+ *   - tmp/token-estimation-report.md (or -defaults.md): full report incl. ALL
+ *     rows, per-stage aggregate, calibration table, and usage distributions
+ *     (reproducible).
  */
-import { readFileSync, readdirSync, statSync, realpathSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  realpathSync,
+  mkdirSync,
+} from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -33,15 +58,35 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const SESSIONS_DIR = path.join(os.homedir(), ".pi", "agent", "sessions");
+const args = process.argv.slice(2);
+const useDefaults = args.includes("--defaults");
+const positional = args.find((a) => !a.startsWith("--"));
+const limit = positional && positional !== "all" ? Number(positional) || 0 : 0;
+const REPORT_PATH = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  "..",
+  "tmp",
+  useDefaults
+    ? "token-estimation-report-defaults.md"
+    : "token-estimation-report.md",
+);
 const OM_TYPES = {
   observations: "om.observations.recorded",
   reflections: "om.reflections.recorded",
   drops: "om.observations.dropped",
 };
 const SOURCE_TYPES = new Set(["message", "custom_message", "branch_summary"]);
+const CONSOLE_ROW_CAP = 70;
 
-// ── config thresholds (from global config, with defaults) ────────────────
-function loadThresholds() {
+// ── config thresholds (global config, or built-in code defaults with --defaults)
+function loadThresholds(useDefaults) {
+  const codeDefaults = {
+    observe: 15_000,
+    reflect: 25_000,
+    drop: 25_000,
+    compact: 81_000,
+  };
+  if (useDefaults) return codeDefaults;
   const cfgPath = path.join(
     os.homedir(),
     ".pi",
@@ -52,13 +97,13 @@ function loadThresholds() {
   try {
     const raw = JSON.parse(readFileSync(cfgPath, "utf8"));
     return {
-      observe: raw.observeAfterTokens ?? 25_000,
-      reflect: raw.reflectAfterTokens ?? 80_000,
-      drop: raw.reflectAfterTokens ?? 80_000,
-      compact: raw.compactAfterTokens ?? 185_000,
+      observe: raw.observeAfterTokens ?? codeDefaults.observe,
+      reflect: raw.reflectAfterTokens ?? codeDefaults.reflect,
+      drop: raw.reflectAfterTokens ?? codeDefaults.drop,
+      compact: raw.compactAfterTokens ?? codeDefaults.compact,
     };
   } catch {
-    return { observe: 25_000, reflect: 80_000, drop: 80_000, compact: 185_000 };
+    return codeDefaults;
   }
 }
 
@@ -226,8 +271,45 @@ function usageSinceLastCompaction(entries) {
   return lastUsage + trailing;
 }
 
+// ── statistics helpers (algorithmic calibration surface) ──────────────────
+function percentile(sorted, p) {
+  if (sorted.length === 0) return undefined;
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(p * sorted.length) - 1),
+  );
+  return sorted[idx];
+}
+
+/** The k-th largest usage value — the threshold at which exactly k windows
+ *  would fire under truthful counting (modulo ties), i.e. the usage-equivalent
+ *  of today's est-based fire count (estOverCount). A low T' means the est
+ *  counter was already firing a lot; a high T' means it rarely fired. */
+function sameFireCountThreshold(usageValues, k) {
+  if (k <= 0 || usageValues.length === 0) return undefined;
+  const asc = [...usageValues].sort((a, b) => a - b);
+  return asc[Math.max(0, asc.length - k)];
+}
+
+/** Achieved fire count at a given threshold (tie-aware; may exceed k). */
+function countAtOrAbove(values, threshold) {
+  if (threshold === undefined) return undefined;
+  let c = 0;
+  for (const v of values) if (v >= threshold) c++;
+  return c;
+}
+
+function fmtPct(sorted, p) {
+  const v = percentile(sorted, p);
+  return v === undefined ? "n/a" : String(v);
+}
+
+function fmtNum(v) {
+  return v === undefined ? "n/a" : String(v);
+}
+
 // ── session discovery ─────────────────────────────────────────────────────
-function findSessions(n) {
+function findSessions(limit) {
   const seen = new Set();
   const files = [];
   for (const dir of readdirSync(SESSIONS_DIR)) {
@@ -257,7 +339,7 @@ function findSessions(n) {
     }
   }
   files.sort((a, b) => b.mtime - a.mtime);
-  return files.slice(0, n);
+  return limit > 0 ? files.slice(0, limit) : files;
 }
 
 function parseEntries(filePath) {
@@ -275,9 +357,8 @@ function parseEntries(filePath) {
 }
 
 // ── report ────────────────────────────────────────────────────────────────
-const th = loadThresholds();
-const N = Number(process.argv[2]) || 20;
-const sessions = findSessions(N);
+const th = loadThresholds(useDefaults);
+const sessions = findSessions(limit);
 
 const stages = [
   { name: "observer", type: OM_TYPES.observations, threshold: th.observe },
@@ -290,10 +371,12 @@ const agg = Object.fromEntries(
   stages.map((s) => [
     s.name,
     {
-      ratios: [],
-      estOver: 0,
-      usageOver: 0,
-      late: 0, // est<thr but usage>=thr (est underreports → fires late)
+      ratios: [], // est/usage over marker-present, usage>0 windows
+      estValues: [], // est over all windows with usage>0 (calibration surface)
+      usageValues: [], // usage over all windows with usage>0
+      estOver: 0, // est >= threshold (all windows)
+      usageOver: 0, // usage >= threshold (all windows)
+      late: 0, // est<thr but usage>=thr
       early: 0, // est>=thr but usage<thr
       withMarker: 0,
       noMarker: 0,
@@ -302,8 +385,10 @@ const agg = Object.fromEntries(
   ]),
 );
 
+const rows = []; // full per-window rows for the report file
+
 console.log(
-  `Analyzing ${sessions.length} most recent sessions under ${SESSIONS_DIR}\n` +
+  `Analyzing ${sessions.length} session files under ${SESSIONS_DIR}\n` +
     `Thresholds: observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}\n` +
     `(est = current chars/4 estimate over the branch window; usage = proposed usage-based count; marker = index of last coverage marker / compaction, -1 = none)`,
 );
@@ -311,8 +396,9 @@ console.log(
   "stage      est       usage     ratio  marker  est>=thr  usage>=thr  session",
 );
 
-let lines = 0;
-for (const s of sessions) {
+for (const [si, s] of sessions.entries()) {
+  if ((si + 1) % 100 === 0)
+    console.log(`… processed ${si + 1}/${sessions.length} sessions`);
   const entries = parseEntries(s.path);
   const name = path
     .basename(s.path)
@@ -328,37 +414,42 @@ for (const s of sessions) {
       stage.type === null
         ? usageSinceLastCompaction(entries)
         : usageDeltaSinceCoverage(entries, stage.type);
-    const ratio = usage > 0 ? (est / usage).toFixed(2) : "n/a";
+    const ratio = usage > 0 ? est / usage : undefined;
     const estOver = est >= stage.threshold;
     const usageOver = usage >= stage.threshold;
 
     const a = agg[stage.name];
     if (marker >= 0) a.withMarker++;
     else a.noMarker++;
-    if (usage > 0 && marker >= 0) a.ratios.push(est / usage);
+    if (usage > 0) {
+      if (marker >= 0) a.ratios.push(ratio);
+      a.estValues.push(est);
+      a.usageValues.push(usage);
+    }
     if (usage === 0 && est === 0) a.noUsage++;
     if (estOver) a.estOver++;
     if (usageOver) a.usageOver++;
     if (usageOver && !estOver) a.late++;
     if (estOver && !usageOver) a.early++;
 
-    lines++;
-    if (lines <= 70) {
-      console.log(
-        `${stage.name.padEnd(10)} ${String(est).padStart(8)} ${String(usage).padStart(9)} ${String(ratio).padStart(6)}  ${String(marker).padStart(6)}  ${String(estOver).padStart(8)}  ${String(usageOver).padStart(9)}  ${name}`,
-      );
-    }
+    rows.push({
+      stage: stage.name,
+      est,
+      usage,
+      ratio,
+      marker,
+      estOver,
+      usageOver,
+      session: name,
+    });
   }
 }
 
-// ── aggregate ─────────────────────────────────────────────────────────────
-console.log(
-  "\n── Aggregate (ratios over marker-present, non-empty windows) ──",
-);
+// ── console aggregate ─────────────────────────────────────────────────────
+console.log("\n── Aggregate (ratios over marker-present, usage>0 windows) ──");
 for (const stage of stages) {
   const a = agg[stage.name];
-  const ratios = a.ratios;
-  ratios.sort((x, y) => x - y);
+  const ratios = [...a.ratios].sort((x, y) => x - y);
   const med = ratios.length
     ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
     : "n/a";
@@ -372,6 +463,127 @@ for (const stage of stages) {
     `${stage.name.padEnd(10)} n=${String(ratios.length).padStart(3)}  est/usage median=${med} min=${min} max=${max}  | est>=thr:${a.estOver} usage>=thr:${a.usageOver} (windows: ${a.withMarker} marker / ${a.noMarker} no-marker)${a.noUsage ? ` no-usage:${a.noUsage}` : ""} ${trigger}`,
   );
 }
+
+// ── calibration (planning input for default threshold bumps) ──────────────
 console.log(
-  `\nSessions analyzed: ${sessions.length} | est/usage < 1 means est UNDERREPORTS usage (fires late); > 1 overreports (fires early)`,
+  "\n── Calibration (usage-accurate counting with unchanged thresholds) ──",
 );
+console.log(
+  "stage      estOver usageOver  churn×   calibrated(median)  same-fire-count T'  usage p50    p90    p95    max",
+);
+const cal = [];
+for (const stage of stages) {
+  const a = agg[stage.name];
+  const usageSorted = [...a.usageValues].sort((x, y) => x - y);
+  const churn = a.estOver > 0 ? a.usageOver / a.estOver : undefined;
+  // calibrated via median(usage/est) over marker windows
+  const invRatios = a.ratios
+    .map((r) => (r > 0 ? 1 / r : undefined))
+    .filter((v) => v !== undefined);
+  invRatios.sort((x, y) => x - y);
+  const medInv = invRatios.length
+    ? invRatios[Math.floor(invRatios.length / 2)]
+    : undefined;
+  const calibrated =
+    medInv !== undefined ? Math.round(stage.threshold * medInv) : undefined;
+  const sameCount = sameFireCountThreshold(a.usageValues, a.estOver);
+  const sameCountAchieved = countAtOrAbove(a.usageValues, sameCount);
+  cal.push({
+    stage: stage.name,
+    ...a,
+    churn,
+    calibrated,
+    sameCount,
+    sameCountAchieved,
+    usageSorted,
+  });
+  console.log(
+    `${stage.name.padEnd(10)} ${String(a.estOver).padStart(7)} ${String(a.usageOver).padStart(9)}  ${churn !== undefined ? churn.toFixed(1).padStart(5) : "  n/a"}  ${fmtNum(calibrated).padStart(20)}  ${fmtNum(sameCount).padStart(17)}  ${fmtPct(usageSorted, 0.5).padStart(8)} ${fmtPct(usageSorted, 0.9).padStart(6)} ${fmtPct(usageSorted, 0.95).padStart(6)} ${fmtPct(usageSorted, 1).padStart(7)}`,
+  );
+}
+console.log(
+  `\nSessions analyzed: ${sessions.length} | est/usage < 1 means est UNDERREPORTS usage (fires late); > 1 overreports (fires early)
+churn× = usageOver/estOver (how many more fires with truthful counting, unchanged thresholds)
+calibrated(median) = threshold × median(usage/est) — same fire frequency on the median window
+same-fire-count T' = largest T' with count(usage >= T') <= count(est >= threshold) — exact, tie-safe`,
+);
+
+// ── write full report file ────────────────────────────────────────────────
+const md = [];
+md.push("# Token estimation vs actual usage — algorithmic report");
+md.push("");
+md.push(
+  `- Command: \`node scripts/analyze-token-estimation.mjs${limit ? ` ${limit}` : ""}${useDefaults ? " --defaults" : ""}\``,
+);
+md.push(
+  `- Sessions analyzed: ${sessions.length} (unique, realpath-deduped) under \`${SESSIONS_DIR}\``,
+);
+md.push(
+  `- Thresholds (from global config): observe=${th.observe} reflect=${th.reflect} drop=${th.drop} compact=${th.compact}`,
+);
+md.push(`- Generated: ${new Date().toISOString()}`);
+md.push("");
+md.push("## Per-window rows");
+md.push("");
+md.push(
+  "| stage | est | usage | ratio | marker | est>=thr | usage>=thr | session |",
+);
+md.push("|---|---|---|---|---|---|---|---|");
+for (const r of rows) {
+  md.push(
+    `| ${r.stage} | ${r.est} | ${r.usage} | ${r.ratio !== undefined ? r.ratio.toFixed(2) : "n/a"} | ${r.marker} | ${r.estOver} | ${r.usageOver} | ${r.session} |`,
+  );
+}
+md.push("");
+md.push("## Aggregate (ratios over marker-present, usage>0 windows)");
+md.push("");
+md.push(
+  "| stage | n | median | min | max | est>=thr | usage>=thr | marker | no-marker | no-usage | LATE | EARLY |",
+);
+md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const stage of stages) {
+  const a = agg[stage.name];
+  const ratios = [...a.ratios].sort((x, y) => x - y);
+  const med = ratios.length
+    ? ratios[Math.floor(ratios.length / 2)].toFixed(2)
+    : "n/a";
+  const min = ratios.length ? ratios[0].toFixed(2) : "n/a";
+  const max = ratios.length ? ratios[ratios.length - 1].toFixed(2) : "n/a";
+  md.push(
+    `| ${stage.name} | ${ratios.length} | ${med} | ${min} | ${max} | ${a.estOver} | ${a.usageOver} | ${a.withMarker} | ${a.noMarker} | ${a.noUsage} | ${a.late} | ${a.early} |`,
+  );
+}
+md.push("");
+md.push("## Calibration (planning input for default threshold bumps)");
+md.push("");
+md.push("Interpretation:");
+md.push(
+  "- **churn×** = `usageOver / estOver` — how many more times the stage would fire under truthful counting with unchanged thresholds. This is the API-call/cost multiplier auto-install users would silently absorb.",
+);
+md.push(
+  "- **calibrated(median)** = `threshold × median(usage/est)` — the threshold preserving today's fire frequency on the median window.",
+);
+md.push(
+  "- **same-fire-count T'** = the **k-th largest** actual usage across windows (k = today's est fire count) — the threshold under truthful counting that reproduces today's total fire frequency. Achieved count is reported alongside (may exceed k on ties).",
+);
+md.push(
+  "- **usage p50/p90/p95/max** = distribution of actual usage at trigger-decision points. Planned default bumps should sit comfortably above p90/p95 to control churn for auto-install users (their models now run 256k–1M windows; see work_docs plan).",
+);
+md.push("");
+md.push(
+  "| stage | threshold | estOver | usageOver | churn× | calibrated(median) | same-fire-count T' | achieved | usage p50 | p90 | p95 | max |",
+);
+md.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const c of cal) {
+  md.push(
+    `| ${c.stage} | ${stages.find((s) => s.name === c.stage).threshold} | ${c.estOver} | ${c.usageOver} | ${c.churn !== undefined ? c.churn.toFixed(1) : "n/a"} | ${fmtNum(c.calibrated)} | ${fmtNum(c.sameCount)} | ${fmtNum(c.sameCountAchieved)} | ${fmtPct(c.usageSorted, 0.5)} | ${fmtPct(c.usageSorted, 0.9)} | ${fmtPct(c.usageSorted, 0.95)} | ${fmtPct(c.usageSorted, 1)} |`,
+  );
+}
+md.push("");
+md.push(
+  `_Generated by \`scripts/analyze-token-estimation.mjs\`. Re-run any time to reproduce. See \`work_docs/issue-usage-based-token-counting.md\` for the plan._`,
+);
+
+mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+writeFileSync(REPORT_PATH, md.join("\n") + "\n");
+console.log(`\nFull report written to ${REPORT_PATH}`);
