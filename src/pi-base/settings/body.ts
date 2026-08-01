@@ -715,9 +715,12 @@ export function createSettingsModalBody<F extends Field>(
   ): Array<{ label: string; scope: "global" | "project" | null }> {
     const verb = action === "reset" ? "Reset to defaults" : "Delete config";
     return [
+      // Cancel first — it is pre-selected (selectedIndex starts at 0), so
+      // tabbing into the confirm can never trigger a destructive action
+      // by accident.
+      { label: "Cancel", scope: null },
       { label: `${verb} (global)`, scope: "global" },
       { label: `${verb} (project-local)`, scope: "project" },
-      { label: "Cancel", scope: null },
     ];
   }
 
@@ -727,6 +730,17 @@ export function createSettingsModalBody<F extends Field>(
     const options = getScopeActionOptions(scopeActionConfirm!.action);
     lines.push("");
     lines.push(isReset ? "  Reset config to defaults" : "  Delete config file");
+    lines.push("");
+    // Destructive-action warning — warning color (yellow) so it is
+    // visible before confirming.
+    lines.push(
+      args.theme.fg(
+        "warning",
+        isReset
+          ? "  This will reset your config to defaults."
+          : "  This will permanently delete your config file.",
+      ),
+    );
     lines.push("");
     lines.push(args.theme.fg("muted", "  Select scope:"));
     lines.push("");
