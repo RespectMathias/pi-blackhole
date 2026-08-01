@@ -15,33 +15,53 @@ const mockTheme = {
 function makeTui() {
   let _callback: (() => void) | undefined;
   return {
-    requestRender: () => { _callback?.(); },
-    onRender: (cb: () => void) => { _callback = cb; },
+    requestRender: () => {
+      _callback?.();
+    },
+    onRender: (cb: () => void) => {
+      _callback = cb;
+    },
   };
 }
 
 beforeAll(() => {
   if (!existsSync(testDir)) mkdirSync(testDir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify({
-    compaction: "auto",
-    compactionEngine: "blackhole",
-    tailBehavior: "pi-default",
-    memory: true,
-    compactAfterTokens: 81000,
-    debug: false,
-  }, null, 2) + "\n");
+  writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        compaction: "auto",
+        compactionEngine: "blackhole",
+        tailBehavior: "pi-default",
+        memory: true,
+        compactAfterTokens: 81000,
+        debug: false,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
   setKittyProtocolActive(true);
 });
 
 afterAll(() => {
-  try { unlinkSync(configPath); } catch {}
-  try { unlinkSync(join(testDir, "pi-blackhole-config.json.99999.tmp")); } catch {}
+  try {
+    unlinkSync(configPath);
+  } catch {}
+  try {
+    unlinkSync(join(testDir, "pi-blackhole-config.json.99999.tmp"));
+  } catch {}
   setKittyProtocolActive(false);
 });
 
 describe("createConfigureOverlay", () => {
   test("returns render, handleInput, invalidate, dispose", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     expect(overlay).toHaveProperty("render");
     expect(overlay).toHaveProperty("handleInput");
     expect(overlay).toHaveProperty("invalidate");
@@ -49,14 +69,24 @@ describe("createConfigureOverlay", () => {
   });
 
   test("render returns lines with header", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes("Blackhole Configuration"))).toBe(true);
   });
 
   test("render shows field values from config", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     const joined = lines.join("\n");
     expect(joined).toContain("auto");
@@ -65,7 +95,12 @@ describe("createConfigureOverlay", () => {
   });
 
   test("down arrow navigates to next field", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     overlay.handleInput("\x1b[B"); // down
     // Should have moved selection — render should change
     const linesBefore = overlay.render(80);
@@ -76,7 +111,12 @@ describe("createConfigureOverlay", () => {
   });
 
   test("up arrow navigates to previous field", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     overlay.handleInput("\x1b[B"); // down
     overlay.handleInput("\x1b[B"); // down
     const linesDown = overlay.render(80);
@@ -87,7 +127,12 @@ describe("createConfigureOverlay", () => {
 
   test("enter toggles boolean field", () => {
     // First navigate to memory field (index 5 in FIELDS, type boolean)
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     // Navigate down to memory field (5th field, 0-indexed)
     for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[B");
     // Toggle
@@ -98,7 +143,12 @@ describe("createConfigureOverlay", () => {
   });
 
   test("helpText shows when field is selected", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     // Default selection is first field (compaction mode), should show its helpText
     const lines = overlay.render(80).join("\n");
     expect(lines).toContain("auto=trigger on threshold");
@@ -109,25 +159,37 @@ describe("createConfigureOverlay", () => {
     expect(lines2).toContain("pi-default=keep Pi");
   });
 
-  test("escape closes without saving", () => new Promise<void>((done) => {
-    createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
-      expect(result).toBeUndefined();
-      done();
-    }).handleInput("\x1b");
-  }));
+  test("escape closes without saving", () =>
+    new Promise<void>((done) => {
+      createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
+        expect(result).toBeUndefined();
+        done();
+      }).handleInput("\x1b");
+    }));
 
-  test("ctrl+s saves and returns OverlayResult", () => new Promise<void>((done) => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
-      expect(result).toBeDefined();
-      expect(result!.saved).toBe(true);
-      expect(result!.path).toBe(configPath);
-      done();
-    });
-    overlay.handleInput("\x13"); // ctrl+s
-  }));
+  test("ctrl+s saves and returns OverlayResult", () =>
+    new Promise<void>((done) => {
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        (result) => {
+          expect(result).toBeDefined();
+          expect(result!.saved).toBe(true);
+          expect(result!.path).toBe(configPath);
+          done();
+        },
+      );
+      overlay.handleInput("\x13"); // ctrl+s
+    }));
 
   test("invalidate clears cached lines", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     overlay.invalidate();
     const lines2 = overlay.render(80);
@@ -136,7 +198,12 @@ describe("createConfigureOverlay", () => {
   });
 
   test("dispose does not throw", () => {
-    const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      configPath,
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     expect(() => overlay.dispose()).not.toThrow();
   });
 
@@ -144,26 +211,38 @@ describe("createConfigureOverlay", () => {
   // Kitty keyboard protocol (CSI-u) tests
   // -------------------------------------------------------------------------
   describe("Kitty CSI-u input", () => {
-    test("escape via CSI-u closes without saving", () => new Promise<void>((done) => {
-      createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
-        expect(result).toBeUndefined();
-        setKittyProtocolActive(true);
-        done();
-      }).handleInput("\x1b[27u");
-    }));
+    test("escape via CSI-u closes without saving", () =>
+      new Promise<void>((done) => {
+        createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
+          expect(result).toBeUndefined();
+          setKittyProtocolActive(true);
+          done();
+        }).handleInput("\x1b[27u");
+      }));
 
-    test("ctrl+s via CSI-u saves and returns OverlayResult", () => new Promise<void>((done) => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), (result) => {
-        expect(result).toBeDefined();
-        expect(result!.saved).toBe(true);
-        expect(result!.path).toBe(configPath);
-        done();
-      });
-      overlay.handleInput("\x1b[115;5u"); // Kitty ctrl+s
-    }));
+    test("ctrl+s via CSI-u saves and returns OverlayResult", () =>
+      new Promise<void>((done) => {
+        const overlay = createConfigureOverlay(
+          configPath,
+          mockTheme,
+          makeTui(),
+          (result) => {
+            expect(result).toBeDefined();
+            expect(result!.saved).toBe(true);
+            expect(result!.path).toBe(configPath);
+            done();
+          },
+        );
+        overlay.handleInput("\x1b[115;5u"); // Kitty ctrl+s
+      }));
 
     test("down arrow via CSI-u navigates to next field", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       overlay.handleInput("\x1b[1;1B"); // Kitty down (CSI arrow with modifier)
       const linesBefore = overlay.render(80);
       overlay.handleInput("\x1b[1;1B"); // down again
@@ -172,7 +251,12 @@ describe("createConfigureOverlay", () => {
     });
 
     test("up arrow via CSI-u navigates to previous field", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       overlay.handleInput("\x1b[1;1B"); // down
       overlay.handleInput("\x1b[1;1B"); // down
       const linesDown = overlay.render(80);
@@ -182,7 +266,12 @@ describe("createConfigureOverlay", () => {
     });
 
     test("enter via CSI-u toggles boolean field", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       // Navigate down to memory field (index 5, boolean, initially on)
       for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[1;1B");
       // Verify it's showing "on" before toggle
@@ -194,23 +283,33 @@ describe("createConfigureOverlay", () => {
       expect(after).not.toBe(before);
     });
 
-    test("backspace via CSI-u works in number editing", () => new Promise<void>((resolve) => {
-      let stage = 0;
-      const done = () => {};
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), done);
-      // Navigate to compactAfterTokens (index 4, number field)
-      for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
-      overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
-      const origLength = overlay.render(80).join("\n");
-      overlay.handleInput("\x1b[127u"); // Kitty backspace
-      const after = overlay.render(80).join("\n");
-      // Backspace should change the rendered value
-      expect(after).not.toBe(origLength);
-      resolve();
-    }));
+    test("backspace via CSI-u works in number editing", () =>
+      new Promise<void>((resolve) => {
+        const done = () => {};
+        const overlay = createConfigureOverlay(
+          configPath,
+          mockTheme,
+          makeTui(),
+          done,
+        );
+        // Navigate to compactAfterTokens (index 4, number field)
+        for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
+        overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
+        const origLength = overlay.render(80).join("\n");
+        overlay.handleInput("\x1b[127u"); // Kitty backspace
+        const after = overlay.render(80).join("\n");
+        // Backspace should change the rendered value
+        expect(after).not.toBe(origLength);
+        resolve();
+      }));
 
     test("digit via CSI-u works in number editing", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       // Navigate to compactAfterTokens (index 4, number field)
       for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
       overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
@@ -223,7 +322,12 @@ describe("createConfigureOverlay", () => {
     });
 
     test("tab via CSI-u exits edit mode", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       // Navigate to compactAfterTokens (index 4, number field)
       for (let i = 0; i < 4; i++) overlay.handleInput("\x1b[1;1B");
       overlay.handleInput("\x1b[13u"); // Kitty enter → start editing
@@ -235,7 +339,12 @@ describe("createConfigureOverlay", () => {
     });
 
     test("space via CSI-u toggles boolean", () => {
-      const overlay = createConfigureOverlay(configPath, mockTheme, makeTui(), () => {});
+      const overlay = createConfigureOverlay(
+        configPath,
+        mockTheme,
+        makeTui(),
+        () => {},
+      );
       // Navigate to memory field (index 5, boolean, initially on)
       for (let i = 0; i < 5; i++) overlay.handleInput("\x1b[1;1B");
       const before = overlay.render(80).join("\n");
@@ -247,7 +356,12 @@ describe("createConfigureOverlay", () => {
   });
 
   test("handles missing config file gracefully", () => {
-    const overlay = createConfigureOverlay("/nonexistent/path.json", mockTheme, makeTui(), () => {});
+    const overlay = createConfigureOverlay(
+      "/nonexistent/path.json",
+      mockTheme,
+      makeTui(),
+      () => {},
+    );
     const lines = overlay.render(80);
     // Should still render (uses empty config)
     expect(lines.length).toBeGreaterThan(0);

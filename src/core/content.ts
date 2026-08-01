@@ -33,7 +33,10 @@ export const clipSentence = (text: string, max = 200): string => {
 };
 
 export const nonEmptyLines = (text: string): string[] =>
-  text.split("\n").map((line) => line.trim()).filter(Boolean);
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 
 export const firstLine = (text: string, max = 200): string =>
   clip(text.split("\n")[0] ?? "", max);
@@ -64,10 +67,25 @@ export const isContentBearing = (args: Record<string, unknown>): boolean => {
   // Must have at least one content-bearing field
   if (typeof args.content === "string" && args.content.length > 0) return true;
   // edits must be a non-empty array of objects (each with oldText/newText)
-  if (Array.isArray(args.edits) && args.edits.length > 0 && args.edits.every((e) => typeof e === "object" && e !== null)) return true;
+  if (
+    Array.isArray(args.edits) &&
+    args.edits.length > 0 &&
+    args.edits.every((e) => typeof e === "object" && e !== null)
+  )
+    return true;
   // oldText/newText without edits are content-bearing
-  if (typeof args.oldText === "string" && args.oldText.length > 0 && args.edits === undefined) return true;
-  if (typeof args.newText === "string" && args.newText.length > 0 && args.edits === undefined) return true;
+  if (
+    typeof args.oldText === "string" &&
+    args.oldText.length > 0 &&
+    args.edits === undefined
+  )
+    return true;
+  if (
+    typeof args.newText === "string" &&
+    args.newText.length > 0 &&
+    args.edits === undefined
+  )
+    return true;
   return false;
 };
 
@@ -98,11 +116,13 @@ export const toolCallArgsText = (
         if (extracted.length >= maxBytesPerCall) break;
         if (edit && typeof edit === "object") {
           if (typeof edit.oldText === "string") {
-            extracted += edit.oldText.slice(0, Math.floor(maxBytesPerCall / 2)) + "\n";
+            extracted +=
+              edit.oldText.slice(0, Math.floor(maxBytesPerCall / 2)) + "\n";
           }
           if (extracted.length >= maxBytesPerCall) break;
           if (typeof edit.newText === "string") {
-            extracted += edit.newText.slice(0, Math.floor(maxBytesPerCall / 2)) + "\n";
+            extracted +=
+              edit.newText.slice(0, Math.floor(maxBytesPerCall / 2)) + "\n";
           }
         }
       }
@@ -122,7 +142,11 @@ export const toolCallArgsText = (
 };
 
 /** Extract a snippet of ~`radius` chars around the first match of `term` in `text`. */
-export const snippet = (text: string, term: string, radius = 60): string | null => {
+export const snippet = (
+  text: string,
+  term: string,
+  radius = 60,
+): string | null => {
   const idx = text.toLowerCase().indexOf(term.toLowerCase());
   if (idx === -1) return null;
   const start = Math.max(0, idx - radius);

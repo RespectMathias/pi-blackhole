@@ -46,10 +46,15 @@ function findContentBearingCalls(content: unknown[]): ContentBearingCall[] {
     const entry: ContentBearingCall = { name: (part as any).name ?? "", path };
     if (typeof args.content === "string") entry.content = args.content;
     if (Array.isArray(args.edits)) {
-      entry.edits = args.edits.filter((e: unknown): e is { oldText?: string; newText?: string } => e !== null && typeof e === "object");
+      entry.edits = args.edits.filter(
+        (e: unknown): e is { oldText?: string; newText?: string } =>
+          e !== null && typeof e === "object",
+      );
     }
-    if (typeof args.oldText === "string" && !Array.isArray(args.edits)) entry.oldText = args.oldText;
-    if (typeof args.newText === "string" && !Array.isArray(args.edits)) entry.newText = args.newText;
+    if (typeof args.oldText === "string" && !Array.isArray(args.edits))
+      entry.oldText = args.oldText;
+    if (typeof args.newText === "string" && !Array.isArray(args.edits))
+      entry.newText = args.newText;
     results.push(entry);
   }
   return results;
@@ -71,7 +76,10 @@ function formatToolCallContent(
     body = tc.content;
   } else if (tc.edits) {
     body = tc.edits
-      .map((e, i) => `--- edit ${i + 1} ---\n${e.oldText ?? ""}\n--- becomes ---\n${e.newText ?? ""}`)
+      .map(
+        (e, i) =>
+          `--- edit ${i + 1} ---\n${e.oldText ?? ""}\n--- becomes ---\n${e.newText ?? ""}`,
+      )
       .join("\n\n");
   } else if (tc.oldText && tc.newText) {
     body = `--- old ---\n${tc.oldText}\n--- new ---\n${tc.newText}`;
@@ -169,9 +177,13 @@ const DRILLDOWN_PATTERN = /^#(\d+):(.+?)(?::(full|\d+(?::\d+)?))?$/;
  *   :30:20      → offset 30 lines, limit 20 lines
  *   (none)      → preview first 30 lines
  */
-export function parseDrillDown(
-  query: string,
-): { index: number; pathPattern: string; full: boolean; offset?: number; limit?: number } | null {
+export function parseDrillDown(query: string): {
+  index: number;
+  pathPattern: string;
+  full: boolean;
+  offset?: number;
+  limit?: number;
+} | null {
   const match = query.match(DRILLDOWN_PATTERN);
   if (!match) return null;
   const index = parseInt(match[1], 10);
@@ -179,7 +191,13 @@ export function parseDrillDown(
   const suffix = match[3];
 
   if (suffix === "full") {
-    return { index, pathPattern, full: true, offset: undefined, limit: undefined };
+    return {
+      index,
+      pathPattern,
+      full: true,
+      offset: undefined,
+      limit: undefined,
+    };
   }
 
   if (suffix !== undefined) {
@@ -192,7 +210,13 @@ export function parseDrillDown(
     }
   }
 
-  return { index, pathPattern, full: false, offset: undefined, limit: undefined };
+  return {
+    index,
+    pathPattern,
+    full: false,
+    offset: undefined,
+    limit: undefined,
+  };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────
@@ -238,10 +262,16 @@ export function expandEntryFile(
       return `No file content found in entry #${entryIndex}.`;
     }
     if (calls.length === 1) {
-      return formatToolCallContent(calls[0], entryIndex, { full, offset, limit });
+      return formatToolCallContent(calls[0], entryIndex, {
+        full,
+        offset,
+        limit,
+      });
     }
     // Multiple content-bearing calls — list them
-    const items = calls.map((tc) => `  [#${entryIndex}:${tc.path}] ${tc.name}(${tc.path})`);
+    const items = calls.map(
+      (tc) => `  [#${entryIndex}:${tc.path}] ${tc.name}(${tc.path})`,
+    );
     return `Entry #${entryIndex} has ${calls.length} file operations:\n${items.join("\n")}\n\nUse #${entryIndex}:path to drill into a specific file.`;
   }
 

@@ -45,10 +45,7 @@ export const assistantWithToolCall = (
   stopReason: "toolUse",
 });
 
-export const toolResult = (
-  name: string,
-  text: string,
-): Message => ({
+export const toolResult = (name: string, text: string): Message => ({
   role: "toolResult",
   toolCallId: "tc_1",
   toolName: name,
@@ -56,5 +53,3 @@ export const toolResult = (
   isError: false,
   timestamp: ts,
 });
-
-

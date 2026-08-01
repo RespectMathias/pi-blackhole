@@ -7,12 +7,15 @@ interface FileActivity {
   created: Set<string>;
 }
 
-const FILE_READ_TOOLS = new Set([
-  "Read", "read_file", "View",
-]);
+const FILE_READ_TOOLS = new Set(["Read", "read_file", "View"]);
 
 const FILE_WRITE_TOOLS = new Set([
-  "Edit", "Write", "edit", "write", "edit_file", "write_file",
+  "Edit",
+  "Write",
+  "edit",
+  "write",
+  "edit_file",
+  "write_file",
   "MultiEdit",
 ]);
 
@@ -27,7 +30,9 @@ const FILE_CREATE_TOOLS = new Set<string>();
 const longestCommonDirPrefix = (paths: string[]): string => {
   // Normalize backslashes (Windows) to forward slashes for uniform comparison
   const normalized = paths.map((p) => p.replace(/\\/g, "/"));
-  const abs = normalized.filter((p) => p.startsWith("/") || /^[A-Za-z]:\//.test(p));
+  const abs = normalized.filter(
+    (p) => p.startsWith("/") || /^[A-Za-z]:\//.test(p),
+  );
   if (abs.length < 2) return "";
   const split = abs.map((p) => p.split("/"));
   const min = Math.min(...split.map((s) => s.length));

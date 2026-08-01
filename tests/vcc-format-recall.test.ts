@@ -3,7 +3,11 @@
  * Changes: bun:test → vitest, added .js import extensions
  */
 import { describe, it, expect } from "vitest";
-import { formatRecallOutput, formatTouchedOutput, shortPath } from "../src/core/format-recall.js";
+import {
+  formatRecallOutput,
+  formatTouchedOutput,
+  shortPath,
+} from "../src/core/format-recall.js";
 import type { SearchHit, TouchedFile } from "../src/core/search-entries.js";
 
 describe("formatRecallOutput", () => {
@@ -59,9 +63,7 @@ describe("formatRecallOutput", () => {
         role: "assistant",
         summary: "done",
         id: "e1",
-        fileMatches: [
-          { toolName: "write", path: "auth.ts", lineCount: 2 },
-        ],
+        fileMatches: [{ toolName: "write", path: "auth.ts", lineCount: 2 }],
       },
     ];
     const r = formatRecallOutput(entries);
@@ -108,7 +110,11 @@ describe("formatRecallOutput", () => {
         summary: "done",
         id: "e1",
         fileMatches: [
-          { toolName: "write", path: "/home/user/project/src/auth.ts", lineCount: 3 },
+          {
+            toolName: "write",
+            path: "/home/user/project/src/auth.ts",
+            lineCount: 3,
+          },
         ],
       },
     ];
@@ -126,9 +132,7 @@ describe("formatRecallOutput", () => {
         role: "assistant",
         summary: "done",
         id: "e1",
-        fileMatches: [
-          { toolName: "write", path: "auth.ts", lineCount: 1 },
-        ],
+        fileMatches: [{ toolName: "write", path: "auth.ts", lineCount: 1 }],
       },
     ];
     const r = formatRecallOutput(entries);

@@ -59,6 +59,21 @@ https://github.com/user-attachments/assets/a7dd804d-6aca-4bdb-8b6e-0dd779363a43
 
 ---
 
+## Commands
+
+```text
+/blackhole                            Manual compact — deterministic structural summary
+/blackhole settings                   Open the configuration overlay (alias: /blackhole configure)
+/blackhole cleanup                    Remove orphaned pending files
+/blackhole om-off                     Disable observational memory
+/blackhole om-on                      Enable observational memory
+/blackhole-memory [status|view|full]  Memory pipeline status & token counters
+/blackhole-recall <query> [page:N] [scope:all] [mode:file|touched]
+                                      Search session history — also available to the agent as the `recall` tool
+```
+
+---
+
 ## The problem it solves
 
 Long engineering sessions degrade. Pi's native compaction calls an LLM to write free-form prose summaries — then compacts those summaries, then compacts *those* summaries. After enough cycles, load-bearing details vanish: why a decision was made, what approaches were already rejected, what the user clarified earlier.

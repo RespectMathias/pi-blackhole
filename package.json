@@ -1,22 +1,32 @@
 {
   "name": "pi-blackhole",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "packageManager": "pnpm@11.2.2",
   "description": "Unified compaction + observational memory extension for Pi — compresses conversation context while preserving durable observations and reflections",
   "license": "MIT",
-  "main": "index.ts",
+  "type": "module",
+  "main": "./dist/index.js",
   "files": [
+    "dist/",
     "*.ts",
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "!tests/",
+    "tsup.config.ts",
     "LICENSE",
     "README.md",
     "example-config.json"
   ],
   "scripts": {
-    "check": "tsc --noEmit",
-    "lint": "eslint src/"
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm lint",
+    "prepare": "node scripts/prepare.mjs"
   },
   "keywords": [
     "pi-package",
@@ -47,19 +57,21 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "0.81.1",
-    "@earendil-works/pi-ai": "0.81.1",
-    "@earendil-works/pi-coding-agent": "0.81.1",
-    "@earendil-works/pi-tui": "0.81.1",
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
     "@typescript-eslint/eslint-plugin": "8.60.0",
     "@typescript-eslint/parser": "8.60.0",
     "eslint": "9.39.4",
     "husky": "9.1.7",
+    "tsup": "^8.5.1",
     "lint-staged": "15.5.2",
+    "prettier": "3.9.6",
     "typebox": "1.1.38",
     "typescript": "5.9.3",
     "vitest": "4.1.9"

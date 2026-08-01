@@ -1,3 +1,45 @@
+## [Unreleased]
+
+## [0.4.3] - 2026-08-01
+
+### Added
+
+- **pi-base config modal for `/blackhole configure`.** ([#41](https://github.com/k0valik/pi-blackhole/pull/41)) The hand-rolled configure overlay is replaced with pi-base's ConfigManager + settings modal (vendored into `src/pi-base/`), with scope-aware editing: global config lives at `<agentDir>/pi-blackhole/` (respecting `PI_CODING_AGENT_DIR`), project config overlays `<cwd>/.pi/pi-blackhole-config.json`.
+
+### Changed
+
+- **Number fields edit inline in `/blackhole configure`.** Number fields (e.g. `compactAfterTokens`, `observeAfterTokens`) no longer cycle in fixed steps on every Enter — pressing Enter drops into inline editing where you type the value directly; `←`/`→` still fine-tune by step when not editing.
+- **Destructive-action confirmations are safer.** The delete/reset scope confirm now lists **Cancel first (pre-selected)** and shows a warning-color line stating what the action will do — tabbing into the confirm can never land on a destructive action by accident.
+- **Custom provider streams discovered through pi's model registry.** ([#42](https://github.com/k0valik/pi-blackhole/pull/42), thanks @FelikZ) The bridge that lets OM agents (observer/reflector/dropper) use custom providers (e.g. claude-bridge) now captures `streamSimple` functions from pi's public registry API (`getRegisteredProviderIds`/`getRegisteredProviderConfig`) on every `agent_start`, instead of wrapping `pi.registerProvider` and reading the private `registeredProviders` field. Works regardless of extension load order and includes providers added after startup; the legacy discovery path remains available for older pi releases.
+- **Precompiled extension bundle for faster startup.** The extension now ships a prebuilt `dist/index.js` bundle (tsup/esbuild) instead of being transpiled file-by-file by jiti at startup — module loading drops from ~85 source files to a single ESM file, measured ~1.6–2× faster extension load. The `@earendil-works/pi-*` packages and `typebox` stay external and resolve to the host pi's copies at runtime via its loader aliases. `pnpm build` produces the bundle; `prepare` builds automatically on install. The package manifest points at `./dist/index.js` and falls back to `index.ts` (slow path) when `dist/` is absent, so a fresh checkout still works pre-build.
+
+### Fixed
+
+- **Manual-mode pending files now contain full observation payloads.** ([#41](https://github.com/k0valik/pi-blackhole/pull/41)) The `noAutoCompact` → `compaction:'manual'` migration is completed: `isManualMode()` now checks both keys across all save/load gates, so manual-mode observations are written to the pending file (`savePendingObservation`) instead of falling through to `appendEntry()` (JSONL) — restoring crash-safe mid-run interruption recovery and `/blackhole flush` parity.
+- **Config modal could overwrite the user's config with defaults.** `openSettings` did not pass `globalConfigDir` to the settings modal, so the modal initialized every field from the schema default (it read a nonexistent config in the extensions dir) instead of the actual config file. Saving then wrote those defaults over the real values (e.g. `compactAfterTokens` 185000 → 81000) while the runtime kept the correct values in memory — a confusing half-applied state. The modal now initializes from the real config file.
+- **Number-field editing could get stuck.** While inline-editing a number field, typing/backspace/escape were swallowed by the step-cycling branch, leaving the modal in an editing state with no way out (Enter showed a cursor but nothing worked, and `ctrl+c` couldn't close it). All editing keys now flow through the inline editor, and `ctrl+c` closes the modal even mid-edit.
+- **Typed input failed in Kitty terminals.** Kitty reports printable characters as CSI-u sequences (e.g. `5` arrives as `\x1b[53u`); they were rejected by the input filter — and after the first fix, inserted as raw escape bytes. The input filter and the insert path now decode them, so typing works in Kitty terminals.
+- **Config save failures on read-only filesystems are now visible.** `ConfigManager.save()` throws when the write fails (e.g. config managed by Nix), and `/blackhole om-off`/`om-on` surface a warning — previously the failure was silently swallowed while the in-memory runtime state changed, diverging from disk without explanation.
+- **`PI_BLACKHOLE_*` env overrides now apply at runtime.** The declarative env map (`memory`, `debug`, `compactAfterTokens`, …) was only honored by the modal path; the runtime config loader ignored it. The env map + application logic moved to a shared module used by both paths, so e.g. `PI_BLACKHOLE_COMPACT_AFTER_TOKENS=200000` now affects the actual compaction threshold, not just the modal display.
+
+### Testing
+
+- **Ported the upstream pi-base test suite (246 tests)** from `pi-utils/packages/pi-base` — config manager, settings modal (buffered mode, smoke, inline-edit, field validation) plus the 4 small modules (env, shell, types, ui) they cover. Only import-path adaptation was needed; zero semantic drift, which also confirms the vendored modal is behaviorally aligned with upstream.
+- **New regression tests pin this release's fixes:** config-manager `globalConfigDir` forwarding, number-field inline editing (including a Kitty CSI-u integration case driving the full renderer path), Kitty decode, and runtime env overrides.
+- **Tests no longer touch the system clipboard.** The memory-command tests ran the real `copyTextToClipboard` (spawning `wl-copy`/`xclip`/`xsel`) and overwrote the user's clipboard with fixture data; the module is now mocked and the mock's use is asserted so a regression fails the suite instead of mutating the clipboard.
+
+### Dependencies
+
+- **Bumped `@earendil-works/pi-*` devDependencies to `0.83.0`** (agent-core, ai, coding-agent, tui); the peer range stays `>=0.81.1 <1.0.0`. CI re-verifies typecheck + tests against the minimum supported `0.81.1` on every push/PR, so both the oldest and newest supported pi versions stay green.
+
+### Packaging
+
+- **Tolerant `prepare` build hook.** The `prepare` script is now a dependency-free `node scripts/prepare.mjs` that builds `dist/` only when the toolchain is present, and otherwise skips silently — it can never abort an install for git/checkout consumers running npm, pnpm, or bun in any devDependency configuration. Husky hooks install best-effort (dev checkouts only). Registry installs are unaffected (npm/pnpm/bun never run `prepare` on registry packages).
+- **npm publishing now uses provenance.** The publish workflow runs `npm publish --provenance` (GitHub OIDC attestation), so every tarball carries a signed signature linking it to this repo + workflow — verifiable with `npm audit signatures` / `gh attestation verify`. The release gate now matches CI (build, typecheck, lint, test, format check).
+- **Dev tooling.** Prettier (repo normalized once, enforced via lint-staged), husky pre-commit (lint+format staged files, then typecheck) and pre-push (typecheck + full test suite), ESLint extended to `tests/` and root configs, and CI now runs tests + format check alongside the build.
+
+---
+
 ## [0.4.2] - 2026-07-27
 
 ### Changed

@@ -8,7 +8,14 @@
  * Modified: path changed from observational-memory/ to pi-blackhole/; async buffered.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, appendFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  appendFileSync,
+} from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -17,16 +24,19 @@ export const DEBUG_LOG_MAX_BYTES = 10 * 1024 * 1024;
 export const DEBUG_LOG_RELATIVE_PATH = join("pi-blackhole", "debug.ndjson");
 
 interface DebugLogContext {
-	enabled: boolean;
-	cwd?: string;
-	runId?: string;
+  enabled: boolean;
+  cwd?: string;
+  runId?: string;
 }
 
 const storage = new AsyncLocalStorage<DebugLogContext>();
 
-export function withDebugLogContext<T>(context: DebugLogContext, fn: () => T): T {
-	const parent = storage.getStore();
-	return storage.run({ ...parent, ...context }, fn);
+export function withDebugLogContext<T>(
+  context: DebugLogContext,
+  fn: () => T,
+): T {
+  const parent = storage.getStore();
+  return storage.run({ ...parent, ...context }, fn);
 }
 
 // ── Async buffer ────────────────────────────────────────────────────────────
@@ -39,61 +49,69 @@ let flushing = false;
 let lastWriteMs = 0;
 
 function ensureFlushTimer(): void {
-	if (flushTimer) return;
-	flushTimer = setInterval(() => {
-		// Stop the timer if buffer has been empty for a while
-		if (buffer.length === 0 && lastWriteMs > 0 && Date.now() - lastWriteMs > FLUSH_IDLE_MS) {
-			clearInterval(flushTimer!);
-			flushTimer = null;
-			return;
-		}
-		flushBuffer().catch(() => {});
-	}, BUFFER_FLUSH_MS);
-	// Don't prevent process exit
-	if (flushTimer && typeof flushTimer === "object" && "unref" in flushTimer) {
-		flushTimer.unref();
-	}
+  if (flushTimer) return;
+  flushTimer = setInterval(() => {
+    // Stop the timer if buffer has been empty for a while
+    if (
+      buffer.length === 0 &&
+      lastWriteMs > 0 &&
+      Date.now() - lastWriteMs > FLUSH_IDLE_MS
+    ) {
+      clearInterval(flushTimer!);
+      flushTimer = null;
+      return;
+    }
+    flushBuffer().catch(() => {});
+  }, BUFFER_FLUSH_MS);
+  // Don't prevent process exit
+  if (flushTimer && typeof flushTimer === "object" && "unref" in flushTimer) {
+    flushTimer.unref();
+  }
 }
 
 async function flushBuffer(): Promise<void> {
-	if (flushing) return;
-	if (buffer.length === 0) return;
-	flushing = true;
-	// Drain the buffer atomically so flushDebugLog doesn't split entries
-	const batch = buffer;
-	buffer = [];
-	try {
-		const path = join(getAgentDir(), DEBUG_LOG_RELATIVE_PATH);
-		mkdirSync(dirname(path), { recursive: true });
-		rotateIfNeeded(path);
-		await appendFile(path, batch.join(""), "utf-8");
-	} catch (error) {
-		console.error("blackhole: debug log write failed", error);
-	} finally {
-		flushing = false;
-	}
+  if (flushing) return;
+  if (buffer.length === 0) return;
+  flushing = true;
+  // Drain the buffer atomically so flushDebugLog doesn't split entries
+  const batch = buffer;
+  buffer = [];
+  try {
+    const path = join(getAgentDir(), DEBUG_LOG_RELATIVE_PATH);
+    mkdirSync(dirname(path), { recursive: true });
+    rotateIfNeeded(path);
+    await appendFile(path, batch.join(""), "utf-8");
+  } catch (error) {
+    console.error("blackhole: debug log write failed", error);
+  } finally {
+    flushing = false;
+  }
 }
 
 // Flush remaining buffer on exit — synchronous to work with process.exit() too
 process.on("exit", () => {
-	flushDebugLog();
+  flushDebugLog();
 });
 
-export function debugLog(event: string, data: Record<string, unknown> = {}, forceEnabled?: boolean): void {
-	const context = storage.getStore();
-	const enabled = forceEnabled ?? context?.enabled ?? false;
-	if (enabled !== true) return;
+export function debugLog(
+  event: string,
+  data: Record<string, unknown> = {},
+  forceEnabled?: boolean,
+): void {
+  const context = storage.getStore();
+  const enabled = forceEnabled ?? context?.enabled ?? false;
+  if (enabled !== true) return;
 
-	const payload = {
-		ts: new Date().toISOString(),
-		event,
-		cwd: context?.cwd,
-		runId: context?.runId,
-		data,
-	};
-	buffer.push(JSON.stringify(payload) + "\n");
-	lastWriteMs = Date.now();
-	ensureFlushTimer();
+  const payload = {
+    ts: new Date().toISOString(),
+    event,
+    cwd: context?.cwd,
+    runId: context?.runId,
+    data,
+  };
+  buffer.push(JSON.stringify(payload) + "\n");
+  lastWriteMs = Date.now();
+  ensureFlushTimer();
 }
 
 /**
@@ -102,23 +120,23 @@ export function debugLog(event: string, data: Record<string, unknown> = {}, forc
  * In production, the background timer handles flushing automatically.
  */
 export function flushDebugLog(): void {
-	if (flushing || buffer.length === 0) return;
-	const batch = buffer;
-	buffer = [];
-	try {
-		const path = join(getAgentDir(), DEBUG_LOG_RELATIVE_PATH);
-		mkdirSync(dirname(path), { recursive: true });
-		rotateIfNeeded(path);
-		appendFileSync(path, batch.join(""), "utf-8");
-	} catch (error) {
-		console.error("blackhole: debug log flush failed", error);
-	}
+  if (flushing || buffer.length === 0) return;
+  const batch = buffer;
+  buffer = [];
+  try {
+    const path = join(getAgentDir(), DEBUG_LOG_RELATIVE_PATH);
+    mkdirSync(dirname(path), { recursive: true });
+    rotateIfNeeded(path);
+    appendFileSync(path, batch.join(""), "utf-8");
+  } catch (error) {
+    console.error("blackhole: debug log flush failed", error);
+  }
 }
 
 function rotateIfNeeded(path: string): void {
-	if (!existsSync(path)) return;
-	if (statSync(path).size < DEBUG_LOG_MAX_BYTES) return;
-	const backupPath = `${path}.1`;
-	if (existsSync(backupPath)) unlinkSync(backupPath);
-	renameSync(path, backupPath);
+  if (!existsSync(path)) return;
+  if (statSync(path).size < DEBUG_LOG_MAX_BYTES) return;
+  const backupPath = `${path}.1`;
+  if (existsSync(backupPath)) unlinkSync(backupPath);
+  renameSync(path, backupPath);
 }

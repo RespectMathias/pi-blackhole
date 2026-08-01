@@ -8,7 +8,8 @@ const SCOPE_CHANGE_RE =
 const TASK_RE =
   /\b(fix|implement|add|create|build|refactor|debug|investigate|update|remove|delete|migrate|deploy|test|write|set up)\b/i;
 
-const NOISE_SHORT_RE = /^(ok|yes|no|sure|yeah|yep|go|hi|hey|thx|thanks|ok\b.*|y|n|k)\s*[.!?]*$/i;
+const NOISE_SHORT_RE =
+  /^(ok|yes|no|sure|yeah|yep|go|hi|hey|thx|thanks|ok\b.*|y|n|k)\s*[.!?]*$/i;
 
 // Reject lines that are clearly not user goals (pasted output, code, paths, tool dumps)
 // or meta-prompt boilerplate (command templates like `/issues` that start with "For each issue:"
@@ -64,7 +65,11 @@ export const extractGoals = (blocks: NormalizedBlock[]): string[] => {
     if (lines.length === 0) continue;
 
     if (goals.length === 0) {
-      goals.push(...lines.slice(0, 6).map((l) => clip(l, FIRST_MSG_CLIP) + indexSuffix(b.sourceIndex)));
+      goals.push(
+        ...lines
+          .slice(0, 6)
+          .map((l) => clip(l, FIRST_MSG_CLIP) + indexSuffix(b.sourceIndex)),
+      );
       continue;
     }
 

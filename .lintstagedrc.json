@@ -1,3 +1,4 @@
 {
-  "*.ts": "pnpm check"
+  "*.ts": ["eslint --fix", "prettier --write"],
+  "*.{json,md,yaml,yml,mjs}": ["prettier --write"]
 }

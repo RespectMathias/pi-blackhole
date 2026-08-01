@@ -7,11 +7,15 @@ export interface LineageSessionManagerLike {
   getEntries?: () => LineageEntryLike[];
 }
 
-export const getActiveLineageEntryIds = (sessionManager: LineageSessionManagerLike): Set<string> => {
+export const getActiveLineageEntryIds = (
+  sessionManager: LineageSessionManagerLike,
+): Set<string> => {
   try {
     const branch = sessionManager.getBranch() ?? [];
     if (branch.length > 0) {
-      return new Set(branch.map((e) => e.id).filter((id): id is string => Boolean(id)));
+      return new Set(
+        branch.map((e) => e.id).filter((id): id is string => Boolean(id)),
+      );
     }
   } catch {
     // fall through to defensive fallback
@@ -19,7 +23,9 @@ export const getActiveLineageEntryIds = (sessionManager: LineageSessionManagerLi
 
   try {
     const all = sessionManager.getEntries?.() ?? [];
-    return new Set(all.map((e) => e.id).filter((id): id is string => Boolean(id)));
+    return new Set(
+      all.map((e) => e.id).filter((id): id is string => Boolean(id)),
+    );
   } catch {
     return new Set();
   }

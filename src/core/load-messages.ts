@@ -20,7 +20,11 @@ const MAX_CACHE_SIZE = 3;
 const CACHE_TTL_MS = 2_000;
 const cache = new Map<string, CacheEntry>();
 
-function cacheKey(sessionFile: string, full: boolean, allowedEntryIds: Set<string> | undefined): string {
+function cacheKey(
+  sessionFile: string,
+  full: boolean,
+  allowedEntryIds: Set<string> | undefined,
+): string {
   let hash = `${sessionFile}::${full}`;
   if (allowedEntryIds && allowedEntryIds.size > 0) {
     // Include the full set as sorted JSON for collision-free caching
@@ -29,7 +33,11 @@ function cacheKey(sessionFile: string, full: boolean, allowedEntryIds: Set<strin
   return hash;
 }
 
-function getCached(sessionFile: string, full: boolean, allowedEntryIds?: Set<string>): LoadedMessages | undefined {
+function getCached(
+  sessionFile: string,
+  full: boolean,
+  allowedEntryIds?: Set<string>,
+): LoadedMessages | undefined {
   const key = cacheKey(sessionFile, full, allowedEntryIds);
   const entry = cache.get(key);
   if (!entry) return undefined;
@@ -55,7 +63,12 @@ function getCached(sessionFile: string, full: boolean, allowedEntryIds?: Set<str
   return entry.result;
 }
 
-function setCache(sessionFile: string, full: boolean, allowedEntryIds: Set<string> | undefined, result: LoadedMessages): void {
+function setCache(
+  sessionFile: string,
+  full: boolean,
+  allowedEntryIds: Set<string> | undefined,
+  result: LoadedMessages,
+): void {
   // Evict oldest if at capacity
   if (cache.size >= MAX_CACHE_SIZE) {
     const oldest = cache.entries().next();
@@ -85,10 +98,16 @@ export const loadAllMessages = (
   let parseErrors = 0;
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
-    try { entries.push(JSON.parse(line)); } catch { parseErrors++; }
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      parseErrors++;
+    }
   }
   if (parseErrors > 0) {
-    console.warn(`blackhole: ${parseErrors} malformed JSONL line(s) in ${sessionFile}`);
+    console.warn(
+      `blackhole: ${parseErrors} malformed JSONL line(s) in ${sessionFile}`,
+    );
   }
   const rendered: RenderedEntry[] = [];
   const rawMessages: Message[] = [];

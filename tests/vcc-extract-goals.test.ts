@@ -8,9 +8,7 @@ describe("extractGoals", () => {
   });
 
   it("returns empty when no user blocks", () => {
-    const blocks: NormalizedBlock[] = [
-      { kind: "assistant", text: "hello" },
-    ];
+    const blocks: NormalizedBlock[] = [{ kind: "assistant", text: "hello" }];
     expect(extractGoals(blocks)).toEqual([]);
   });
 
@@ -24,7 +22,10 @@ describe("extractGoals", () => {
 
   it("takes up to 6 lines from first user block", () => {
     const blocks: NormalizedBlock[] = [
-      { kind: "user", text: "fix the login bug\ncheck auth flow\nupdate the tests\nrefactor utils\nclean up" },
+      {
+        kind: "user",
+        text: "fix the login bug\ncheck auth flow\nupdate the tests\nrefactor utils\nclean up",
+      },
     ];
     expect(extractGoals(blocks)).toHaveLength(5);
   });
@@ -42,7 +43,10 @@ describe("extractGoals", () => {
     const blocks: NormalizedBlock[] = [
       { kind: "user", text: "Fix login bug" },
       { kind: "assistant", text: "ok" },
-      { kind: "user", text: "Actually, instead let's refactor the auth module" },
+      {
+        kind: "user",
+        text: "Actually, instead let's refactor the auth module",
+      },
     ];
     const goals = extractGoals(blocks);
     expect(goals).toContain("Fix login bug");

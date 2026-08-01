@@ -17,7 +17,13 @@ export interface CompileInput {
   fileOps?: FileOps;
 }
 
-const HEADER_NAMES = ["Session Goal", "Files And Changes", "Commits", "Outstanding Context", "User Preferences"];
+const HEADER_NAMES = [
+  "Session Goal",
+  "Files And Changes",
+  "Commits",
+  "Outstanding Context",
+  "User Preferences",
+];
 
 const SEPARATOR = "\n\n---\n\n";
 
@@ -28,8 +34,7 @@ const sectionOf = (text: string, header: string): string => {
   if (start < 0) return "";
   const after = text.slice(start);
   // Find next section header (must start at line boundary to avoid matching in content)
-  const nextSection = HEADER_NAMES
-    .filter((h) => h !== header)
+  const nextSection = HEADER_NAMES.filter((h) => h !== header)
     .map((h) => {
       // Escape the header name for regex safety
       const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -41,7 +46,9 @@ const sectionOf = (text: string, header: string): string => {
     })
     .filter((n) => n >= 0);
   const nextSep = after.indexOf("\n\n---\n\n");
-  const candidates = [...nextSection, ...(nextSep > 0 ? [nextSep] : [])].sort((a, b) => a - b);
+  const candidates = [...nextSection, ...(nextSep > 0 ? [nextSep] : [])].sort(
+    (a, b) => a - b,
+  );
   const end = candidates[0];
   return (end ? after.slice(0, end) : after).trim();
 };
@@ -54,7 +61,11 @@ const briefOf = (text: string): string => {
 };
 
 /** Merge a header section */
-const mergeHeaderSection = (header: string, prev: string, fresh: string): string => {
+const mergeHeaderSection = (
+  header: string,
+  prev: string,
+  fresh: string,
+): string => {
   // Outstanding Context is volatile -- always use fresh only
   if (header === "Outstanding Context") return fresh;
   if (!prev) return fresh;
@@ -66,16 +77,20 @@ const mergeHeaderSection = (header: string, prev: string, fresh: string): string
   }
 
   // Session Goal, User Preferences: line-level dedup, cap
-  const isClean = (l: string) => l.startsWith("- ") && !l.includes("<skill") && !l.includes("</skill");
+  const isClean = (l: string) =>
+    l.startsWith("- ") && !l.includes("<skill") && !l.includes("</skill");
   const prevLines = prev.split("\n").filter(isClean);
   const freshLines = fresh.split("\n").filter(isClean);
   const combined = [...new Set([...prevLines, ...freshLines])];
   const CAP = header === "Session Goal" ? 8 : header === "Commits" ? 8 : 15;
   // Session Goal: keep first items so the original first message persists
   // Other sections: keep last items (fresh overrides stale)
-  const capped = combined.length > CAP
-    ? (header === "Session Goal" ? combined.slice(0, CAP) : combined.slice(-CAP))
-    : combined;
+  const capped =
+    combined.length > CAP
+      ? header === "Session Goal"
+        ? combined.slice(0, CAP)
+        : combined.slice(-CAP)
+      : combined;
   if (capped.length === 0) return "";
   return `[${header}]\n${capped.join("\n")}`;
 };
@@ -115,8 +130,10 @@ const mergeFileLines = (prev: string, fresh: string): string => {
   };
 
   const lines: string[] = [];
-  if (merged.Modified.size > 0) lines.push(`- Modified: ${cap(merged.Modified, 10)}`);
-  if (merged.Created.size > 0) lines.push(`- Created: ${cap(merged.Created, 10)}`);
+  if (merged.Modified.size > 0)
+    lines.push(`- Modified: ${cap(merged.Modified, 10)}`);
+  if (merged.Created.size > 0)
+    lines.push(`- Created: ${cap(merged.Created, 10)}`);
   if (merged.Read.size > 0) lines.push(`- Read: ${cap(merged.Read, 10)}`);
   if (lines.length === 0) return "";
   return `[Files And Changes]\n${lines.join("\n")}`;
@@ -130,13 +147,11 @@ const mergeBriefTranscript = (prev: string, fresh: string): string => {
 
 const mergePrevious = (prev: string, fresh: string): string => {
   // Merge header sections
-  const headers = HEADER_NAMES
-    .map((header) => {
-      const freshSec = sectionOf(fresh, header);
-      const prevSec = sectionOf(prev, header);
-      return mergeHeaderSection(header, prevSec, freshSec);
-    })
-    .filter(Boolean);
+  const headers = HEADER_NAMES.map((header) => {
+    const freshSec = sectionOf(fresh, header);
+    const prevSec = sectionOf(prev, header);
+    return mergeHeaderSection(header, prevSec, freshSec);
+  }).filter(Boolean);
 
   // Merge brief transcript
   const prevBrief = briefOf(prev);
@@ -189,7 +204,9 @@ export const compile = (input: CompileInput): string => {
  */
 const stripRecallNotes = (text: string): string => {
   const paragraphs = text.split(/\n\n+/);
-  const kept = paragraphs.filter((p) => !p.includes("The conversation before this point has been compacted"));
+  const kept = paragraphs.filter(
+    (p) => !p.includes("The conversation before this point has been compacted"),
+  );
   return kept.join("\n\n");
 };
 
@@ -204,12 +221,16 @@ const stripOMContent = (text: string): string => {
   const obsIdx = obsMatch ? obsMatch.index! : -1;
 
   // Also detect the basic recall-guidance footer (no observation preamble)
-  const basicFooterIdx = text.indexOf("Use `recall` with an id to retrieve original context, or `#N:path` drill-down");
+  const basicFooterIdx = text.indexOf(
+    "Use `recall` with an id to retrieve original context, or `#N:path` drill-down",
+  );
 
   // Find the start of OM content: either the instructions preamble or the first section header
   let stripFrom = -1;
   if (reflIdx >= 0 || obsIdx >= 0) {
-    const preambleIdx = text.indexOf("These are condensed memories from earlier in this session.");
+    const preambleIdx = text.indexOf(
+      "These are condensed memories from earlier in this session.",
+    );
     const minSectionIdx = Math.min(
       reflIdx >= 0 ? reflIdx : Infinity,
       obsIdx >= 0 ? obsIdx : Infinity,

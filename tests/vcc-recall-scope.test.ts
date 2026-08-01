@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { normalizeRecallScope, parseRecallScope } from "../src/core/recall-scope.js";
+import {
+  normalizeRecallScope,
+  parseRecallScope,
+} from "../src/core/recall-scope.js";
 
 describe("normalizeRecallScope", () => {
   it("defaults to active lineage", () => {
@@ -28,7 +31,6 @@ describe("normalizeRecallMode", () => {
     expect(normalizeRecallMode("file")).toBe("file");
     expect(normalizeRecallMode("FILE")).toBe("file");
   });
-
 
   it("accepts hybrid mode", async () => {
     const { normalizeRecallMode } = await import("../src/core/recall-scope.js");
