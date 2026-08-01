@@ -170,6 +170,32 @@ The exact algorithms are already implemented and battle-tested in `scripts/analy
 4. `dropperPoolFullnessThreshold` (added 2026-08-01, default 0.1, user set 0.05) interacts here: dropper fires on pool fullness + new-data, and the new-data check uses `rawTokensSinceDropCoverage >= reflectAfterTokens` — usage-accurate counting changes that too.
 5. **Cost-sign-off for the user base**: the majority run paid keys and rely on auto-compaction. Confirm the fire-frequency targets (constant, or slightly lower for cost headroom) before shipping; document the change so users can re-tune.
 
+## Appendix: UX & rollout (breaking-change surface)
+
+### A. Presets in the config modal
+
+- The `/blackhole configure` overlay (`src/om/configure-overlay.ts`) manages individual fields grouped in sections (Compaction, Memory, …) and opens via `ctx.ui.custom({ overlay: true })`. The pi-base settings modal already supports **scope actions** — `save-global` / `save-project` / `discard` / `cancel` (`src/pi-base/settings/body.ts` L77–81, `getScopeActionOptions` L713).
+- **Proposal:** add a **Presets** option/tab to the configure modal — pick one of the three presets (low / medium / high, values per the draft-bump proposal above), which pre-fills the affected keys (`observeAfterTokens`, `reflectAfterTokens`, `compactAfterTokens`, plus the chunk/pool sizes from the README preset blocks), then save to **global or project-local** exactly like every other field (existing scope actions).
+- **Why:** after the threshold bumps, users must match presets to their model's context window (256k min / 1M common / 128k local). Hand-editing N number fields is error-prone; a one-step preset picker + the same save-scope flow makes it a 5-second task.
+
+### B. One-time breaking-change warning at session start
+
+- **The problem:** the install base is fire-and-forget — users install, never read changelogs (GitHub or otherwise), and would absorb the usage-counting + threshold change as a silent behavior/cost shift. Provenance of the change is required.
+- **Proposal:** once per session, at `agent_start`, show a small yellow line in the status overlay / transient `ctx.ui` note, e.g. *"pi-blackhole: token counting now uses real model usage; thresholds changed — check /blackhole configure"*, with auto-dismiss (a few seconds) or an explicit dismiss.
+- **Hook point:** the existing `pi.on("agent_start", …)` handlers (`src/om/consolidation.ts` L461, `src/om/compaction-trigger.ts` L76) — or a dedicated handler — compare the persisted last-seen version against a `BREAKING_SINCE` constant, show the note once, then persist.
+- **Provenance / deprecation (must not linger forever):**
+  1. Persist a `lastSeenVersion` field in a small state file in `~/.pi/agent/pi-blackhole/` — same pattern as `pi-blackhole-cooldown.json` (`src/om/cooldown.ts` L28/L53/L64).
+  2. The warning renders only when `lastSeenVersion < BREAKING_SINCE`; after first display it is suppressed until the next breaking release bumps the constant.
+  3. **Programmatic removal:** when the breaking change is old (e.g. 2+ minor versions later), the warning code + state key are deleted entirely — a release-checklist note so it never stays accidentally.
+- **Why a UI note and not a CHANGELOG link:** users don't open changelogs; a single dismissible yellow line is the only channel with guaranteed reach. It is explicitly scoped to breaking releases so it cannot become nagging.
+
+### C. Combined strategy framing (why the three levers go together)
+
+- Adopting usage-delta counting **everywhere** (dropper/observer/reflector included, not just compaction) raises run frequency ~30–70% (their chars/4 counters undercount by 20–40%).
+- **Threshold bumps** (draft proposal above) bring frequency back to ≈ today's for default users.
+- **Tool-result trimming** (head+tail: first 2000 + last 2000 chars, only for results > 4096 chars — the `TRIM` policy in `scripts/analyze-token-estimation.mjs`, tunable) cuts per-run cost: median 15%, p90 49% of the observer's serialized input, which is ~51% tool-result text.
+- Net for default users: **≈ same run frequency, lower tokens per run, truthful thresholds.** Power users keep custom thresholds (their frequency rises — surfaced via B).
+
 ## References
 
 - Fork commit: `tavasti@360f24a6d68b612cfc0858cc43e9514e8b5c9c97` — `https://github.com/tavasti/pi-blackhole/commit/360f24a`
