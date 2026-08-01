@@ -115,15 +115,21 @@ For the author specifically the cost is not dollars — every worker model in th
 
 **Decision (proposed, not implemented):** ship truthful counting **together with** default threshold bumps (at least the medium and high presets) so the fire frequency users actually experience stays roughly constant, and document the change in **CONFIG.md, llms.txt, README.md** so auto-install users are not surprised. Draft numbers in the next section are discussion inputs only.
 
-## Draft default-bump proposal (discussion inputs — not decided)
+## Draft default-bump proposal — calibrated from real sessions (not "feel")
 
-Method: combine (a) the same-fire-count calibration (the threshold that reproduces today's fire count under truthful counting: defaults observer ~23.6k, reflector ~36.3k, dropper ~40.1k, compaction ~108.2k) with (b) the README's 60–70%-of-context compaction rule, re-targeted to 2026 context sizes. Values are deliberately left open for a decision session.
+Replaces the earlier hand-estimated draft with the script's **tier calibration** (per achieved-context tier: max `usage.totalTokens` per session — a measured lower bound on the model window, computable on any user's machine). Compact anchor = 65% of the tier's p90 achieved context (README 60–70% rule); worker thresholds read off the tier's usage distribution at explicit **fire-rate targets** (fire-40% = only 40% of that tier's windows exceed the threshold).
 
-| preset | new target | observe | reflect/drop | compact | rationale |
-|---|---|---|---|---|---|
-| low (local coder models) | ~128k | ~10k | ~20k | ~85k (67% of 128k) | retarget from 32–64k to the real local ceiling; the 128k presets are the new minimum, not the default |
-| medium (default) | ~256k | ~30k | ~50k | ~160k (63% of 256k) | new minimum coding-agent window; sits above same-fire counts → *fewer* fires than today's defaults |
-| high | ~1M | ~60k | ~120k | ~600k (60% of 1M) | frontier models; compaction becomes a true ceiling guard on huge windows |
+| tier | n | p90 ctx | compact (65%) | observe fire-40% | reflect fire-40% | drop fire-40% |
+|---|---|---|---|---|---|---|
+| low (<100k) | 358 | 91.9k | 59.7k | 36.4k | 48.3k | 51.7k |
+| medium (100–200k) | 246 | 187.3k | 121.8k | 67.9k | 82.4k | 120.5k |
+| high (200k+) | 71 | 273.5k | 177.7k | 89.9k | 85.5k | 128.6k |
+
+Key observations:
+- **Worker thresholds grow with tier** (bigger windows → more content accumulates between runs): observe fire-40% 36.4k → 67.9k → 89.9k. A single default set cannot serve all tiers well — this is the argument for tiered presets, not just one bump.
+- The calibrated medium-tier observe (~68k) sits far above the current default (15k) and the author's 25k — medium-context sessions genuinely accumulate ~68k between observer runs (under truthful counting).
+- Compact anchors are bounded by what this archive *achieved* (max 348k — no 1M-window sessions here). For 1M-window users the script on their machine yields larger numbers; the shipped default should be set for the target population.
+- The **fire-rate target is the explicit, documented product choice** — pick e.g. 40% (workers run in under half of windows), read thresholds from the table, then validate against the trim savings. Re-run `scripts/analyze-token-estimation.mjs --summary` on any user's machine to recalibrate.
 
 Interactions to check before finalizing:
 - `observeAfterTokens` vs `observerChunkMaxTokens` (default 40k) — observe can't meaningfully exceed chunk size.

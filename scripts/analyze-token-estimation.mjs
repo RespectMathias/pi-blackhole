@@ -103,6 +103,18 @@ const THINK = {
   thresholdChars: flagNum("think-threshold", 4096), // only trim thinking blocks larger than this
 };
 
+// Achieved-context tiers for preset calibration. Tier = the max context the
+// session actually reached (max usage.totalTokens) — a measured lower bound
+// on the model's window; long sessions approach the real window. Tiering by
+// ACHIEVED context (not the theoretical window) sizes thresholds to how much
+// context sessions genuinely accumulate, and works on any user's machine.
+const TIERS = [
+  { name: "low (<100k)", max: 100_000 },
+  { name: "medium (100–200k)", max: 200_000 },
+  { name: "high (200k+)", max: Infinity },
+];
+const tierOf = (ctx) => (ctx < TIERS[0].max ? 0 : ctx < TIERS[1].max ? 1 : 2);
+
 // ── config thresholds (global config, or built-in code defaults with --defaults)
 function loadThresholds(useDefaults) {
   const codeDefaults = {
@@ -566,6 +578,10 @@ function analyzeOnce(useDefaults, limit) {
 
   const rows = []; // full per-window rows for the report file
   const obsSim = []; // observer input simulation rows
+  const tierBuckets = TIERS.map(() => ({
+    maxCtx: [],
+    usage: Object.fromEntries(stages.map((s) => [s.name, []])),
+  }));
 
   console.log(
     `Analyzing ${sessions.length} session files under ${SESSIONS_DIR}\n` +
@@ -584,6 +600,13 @@ function analyzeOnce(useDefaults, limit) {
       .basename(s.path)
       .replace(/_019[a-f0-9-]+\.jsonl$/, "")
       .slice(-22);
+    let maxCtx = 0;
+    for (const e of entries) {
+      if (e.type !== "message" || !e.message) continue;
+      const t = usageTokens(e.message);
+      if (t !== undefined && t > maxCtx) maxCtx = t;
+    }
+    const ti = maxCtx > 0 ? tierOf(maxCtx) : -1;
     for (const stage of stages) {
       const marker =
         stage.type === null
@@ -605,6 +628,9 @@ function analyzeOnce(useDefaults, limit) {
         if (marker >= 0) a.ratios.push(ratio);
         a.estValues.push(est);
         a.usageValues.push(usage);
+        if (ti >= 0) {
+          tierBuckets[ti].usage[stage.name].push(usage);
+        }
       }
       if (usage === 0 && est === 0) a.noUsage++;
       if (estOver) a.estOver++;
@@ -623,6 +649,7 @@ function analyzeOnce(useDefaults, limit) {
         session: name,
       });
     }
+    if (ti >= 0) tierBuckets[ti].maxCtx.push(maxCtx);
 
     // Observer input simulation: what the observer would send upstream now.
     const obsChunk = observerChunkEntries(entries, th.observerChunk);
@@ -773,6 +800,57 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
     );
   }
 
+  // ── tier calibration (console) ───────────────────────────────────────────
+  // Usage values per stage are threshold-independent, so the tier calibration
+  // is identical for both config surfaces. Computed here, reused in summary.
+  const tierCal = [];
+  for (let ti = 0; ti < TIERS.length; ti++) {
+    const t = tierBuckets[ti];
+    const maxCtxSorted = [...t.maxCtx].sort((a, b) => a - b);
+    if (maxCtxSorted.length === 0) continue;
+    const p50 = percentile(maxCtxSorted, 0.5);
+    const p90 = percentile(maxCtxSorted, 0.9);
+    const compact = Math.round(p90 * 0.65); // 65% of the tier's achieved context
+    tierCal.push({
+      ti,
+      n: maxCtxSorted.length,
+      p50,
+      p90,
+      compact,
+      usage: Object.fromEntries(
+        stages.map((s) => [s.name, [...t.usage[s.name]].sort((a, b) => a - b)]),
+      ),
+    });
+  }
+  console.log(
+    "\n── Tier calibration (per achieved-context tier; compact = 65% of tier p90 achieved context) ──",
+  );
+  console.log("tier              n    p50 ctx  p90 ctx  compact(65%)");
+  for (const c of tierCal) {
+    console.log(
+      `${TIERS[c.ti].name.padEnd(18)} ${String(c.n).padStart(5)} ${fmtNum(c.p50).padStart(8)} ${fmtNum(c.p90).padStart(8)}  ${fmtNum(c.compact)}`,
+    );
+  }
+  console.log(
+    "\nworker thresholds at fire-rate targets (usage tokens; fire-20% = only 20% of tier windows exceed it):",
+  );
+  for (const c of tierCal) {
+    console.log(`  ${TIERS[c.ti].name}:`);
+    for (const s of stages) {
+      const v = c.usage[s.name];
+      if (!v.length) {
+        console.log(`    ${s.name.padEnd(11)} (no usage data)`);
+        continue;
+      }
+      const t20 = percentile(v, 0.8);
+      const t40 = percentile(v, 0.6);
+      const t60 = percentile(v, 0.4);
+      console.log(
+        `    ${s.name.padEnd(11)} fire-20%: ${fmtNum(t20)}  fire-40%: ${fmtNum(t40)}  fire-60%: ${fmtNum(t60)}`,
+      );
+    }
+  }
+
   // ── write full report file ────────────────────────────────────────────────
   const md = [];
   md.push("# Token estimation vs actual usage — algorithmic report");
@@ -845,6 +923,37 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
     );
   }
   md.push("");
+
+  // ── tier calibration (report section) ────────────────────────────────────
+  if (tierCal.length > 0) {
+    md.push("## Tier calibration (per achieved-context tier)");
+    md.push("");
+    md.push(
+      "Tier = the max context each session actually reached (max `usage.totalTokens`) — a measured lower bound on the model's window, usable on any user's machine. Usage values per stage are threshold-independent, so this section is identical for both config surfaces. Compact anchor = 65% of the tier's p90 achieved context (README 60–70% rule). Worker thresholds are read off the tier's usage distribution at target fire rates.",
+    );
+    md.push("");
+    md.push("| tier | n | p50 ctx | p90 ctx | compact (65%) |");
+    md.push("|---|---|---|---|---|");
+    for (const c of tierCal) {
+      md.push(
+        `| ${TIERS[c.ti].name} | ${c.n} | ${fmtNum(c.p50)} | ${fmtNum(c.p90)} | ${fmtNum(c.compact)} |`,
+      );
+    }
+    md.push("");
+    md.push("| tier | stage | fire-20% | fire-40% | fire-60% |");
+    md.push("|---|---|---|---|---|");
+    for (const c of tierCal) {
+      for (const s of stages) {
+        const v = c.usage[s.name];
+        if (!v.length) continue;
+        md.push(
+          `| ${TIERS[c.ti].name} | ${s.name} | ${fmtNum(percentile(v, 0.8))} | ${fmtNum(percentile(v, 0.6))} | ${fmtNum(percentile(v, 0.4))} |`,
+        );
+      }
+    }
+    md.push("");
+  }
+
   md.push(
     `_Generated by \`scripts/analyze-token-estimation.mjs\`. Re-run any time to reproduce. See \`work_docs/issue-usage-based-token-counting.md\` for the plan._`,
   );
@@ -904,7 +1013,18 @@ same-fire-count T' = k-th largest actual usage with k = today's est fire count �
   writeFileSync(REPORT_PATH, md.join("\n") + "\n");
   console.log(`\nFull report written to ${REPORT_PATH}`);
 
-  return { th, sessions, stages, agg, rows, cal, obsSim, useDefaults, limit };
+  return {
+    th,
+    sessions,
+    stages,
+    agg,
+    rows,
+    cal,
+    obsSim,
+    tierCal,
+    useDefaults,
+    limit,
+  };
 }
 
 // ── summary writer (tracked review artifact in work_docs/) ────────────────
@@ -1022,6 +1142,37 @@ function writeSummary(primary, secondary, outPath) {
     ),
   );
   md.push("");
+
+  // ── tier calibration (threshold-independent → shown once) ───────────────
+  if (primary.tierCal.length > 0) {
+    md.push("## Tier calibration (per achieved-context tier)");
+    md.push("");
+    md.push(
+      "Tier = max context each session actually reached (max `usage.totalTokens`) — a measured lower bound on the model's window; usable on any user's machine. Compact anchor = 65% of the tier's p90 achieved context (README 60–70% rule). Worker thresholds read off the tier's usage distribution at target fire rates: **fire-20%** = only 20% of that tier's windows exceed it. Usage values are threshold-independent, so this section is identical for both config surfaces.",
+    );
+    md.push("");
+    md.push("| tier | n | p50 ctx | p90 ctx | compact (65%) |");
+    md.push("|---|---|---|---|---|");
+    for (const c of primary.tierCal) {
+      md.push(
+        `| ${TIERS[c.ti].name} | ${c.n} | ${fmtN(c.p50)} | ${fmtN(c.p90)} | ${fmtN(c.compact)} |`,
+      );
+    }
+    md.push("");
+    md.push("| tier | stage | fire-20% | fire-40% | fire-60% |");
+    md.push("|---|---|---|---|---|");
+    for (const c of primary.tierCal) {
+      for (const s of primary.stages) {
+        const v = c.usage[s.name];
+        if (!v.length) continue;
+        md.push(
+          `| ${TIERS[c.ti].name} | ${s.name} | ${fmtN(percentile(v, 0.8))} | ${fmtN(percentile(v, 0.6))} | ${fmtN(percentile(v, 0.4))} |`,
+        );
+      }
+    }
+    md.push("");
+  }
+
   md.push(
     surface(
       secondary,
