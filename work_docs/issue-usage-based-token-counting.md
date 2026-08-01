@@ -140,25 +140,18 @@ Interactions to check before finalizing:
 
 The tier calibration sizes **trigger** thresholds to the SESSION model's context (how much accumulates before a run is worthwhile). But the workers that ingest the accumulated transcript are **different, smaller models** — a 1M-window session model can easily have a 64–128k observer. If the observer's input exceeds the worker's own window, it must not run — but today's behavior is a **hard skip** (consolidation.ts L843/L1150/L1478: `estimatedInput + AGENT_LOOP_RESERVE (8k) > effectiveCtx → recordRetryableError + continue`), which means **no observations get made and the coverage marker never advances** — the backlog grows forever on small workers (e.g. a 64k worker with a 60k chunk + 8k reserve = 68k > 64k → perpetual skip → cooldown churn).
 
-Current knobs are fixed config numbers decoupled from the worker's actual window:
-- `observerChunkMaxTokens` (default 40k, author 60k), `reflectorInputMaxTokens` (80k/95k), `dropperInputMaxTokens` (80k/80k), `observerPreambleMaxTokens`, `dropperPressureThreshold` (0.7, relative to reflectorInputMaxTokens)
+The caps (`observerChunkMaxTokens` 60k, `reflectorInputMaxTokens` 95k, `dropperInputMaxTokens` 80k) already ensure individual chunks don't overflow the worker. `effectiveContextWindow()` (model-budget.ts) already resolves the worker's window from config-override → pi registry → 128k fallback, and the pre-checks already detect overflow. The missing piece is the **trigger timing**: the worker fires only when `rawTokensSince*Coverage >= configureThreshold` — if the threshold (e.g. 80k) exceeds what the worker can ingest in one run, it will **never fire successfully** because the backlog is already too large by the time the trigger trips.
 
-`effectiveContextWindow()` (model-budget.ts) already resolves the worker's window from config-override → pi registry → 128k fallback, and the pre-checks already exist. What's missing is **deriving the caps from the worker window**.
+**Fix — advance trigger on worker window:**
+- The trigger should fire when EITHER the configured threshold is met **OR** the accumulated backlog approaches the worker's effective context window (minus reserve). I.e. `rawTokensSince*Coverage >= min(configureThreshold, effectiveCtx − AGENT_LOOP_RESERVE − chunkOverhead)`.
+- This means the worker runs **earlier** — before overflowing — while the backlog is still ingestible. The `coversUpToId` marker advances per run, so the backlog drains across multiple runs naturally (the observer loop already supports partial coverage via `record_observations`).
+- No new config knob needed: the worker window is already resolved from the model (via `effectiveContextWindow`); the caps and pre-checks already exist; only the trigger condition changes — add the worker-window upper bound to the `observerDue`/`reflectorDue`/`dropperDue` checks in consolidation.ts.
+- Models released monthly? Doesn't matter — `effectiveContextWindow` reads the registry at runtime; the upper bound auto-tracks.
 
-**Proposal — consolidate to one knob:**
-- Add a single `workerInputFraction` (default ~0.5): worker inputs may use at most this fraction of the worker model's effective context window.
-- Derived at runtime: `observerChunkMaxTokens = min(config cap, fraction × observer window)`; same for reflector/dropper inputs. Existing config caps become upper bounds only.
-- **No per-model churn:** swapping worker models, or a model release updating the registry, auto-adjusts the caps via the existing resolution chain. Users don't micromanage per-model numbers (models release monthly+).
-- Pre-checks remain as the hard safety net.
-
-**Conceptual separation (the "what is the trigger" trap):**
+**Conceptual separation preserved:**
 - Trigger thresholds (`observeAfterTokens`/`reflectAfterTokens`/`compactAfterTokens`) = **session-context** numbers: "when has enough accumulated to make a run worthwhile" — sourced from the tier calibration.
-- Input caps (chunk/reflector/dropper input) = **worker-context** numbers: "how much can THIS worker ingest" — sourced from `workerInputFraction × worker window`.
+- The worker's own window = **hard upper bound** on the trigger: "fire before this worker would overflow, regardless of the configured threshold."
 - Never overload one number to mean both — that is exactly how "what is actually the trigger" gets lost.
-
-**Coverage drain (fix the skip-forever failure):** with derived caps the observer always ingests as much as fits (capped chunk) and the `coversUpToId` marker advances per run, so a backlog larger than one ingest drains across multiple runs instead of blocking forever. Verify the multi-pass behavior in the observer loop (it already supports partial coverage via `record_observations`).
-
-**`dropperPressureThreshold`** already demonstrates the relative-knob pattern (pool ≥ 0.7 × reflectorInputMaxTokens); deriving reflectorInputMaxTokens keeps it coherent automatically.
 
 ## Key architectural insight: why the fork's function can't be reused verbatim for coverage
 
