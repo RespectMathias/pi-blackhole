@@ -334,10 +334,16 @@ export const numberRenderer: FieldRenderer<NumberField, number> = {
     const { values, step } = row.field;
     if (values && values.length > 4)
       return [{ key: "enter", label: "open list" }];
-    if (values || step !== undefined) {
+    if (values && values.length > 0) {
       return [
         { key: "enter/space", label: "cycle" },
         { key: "←/→", label: "prev/next" },
+      ];
+    }
+    if (step !== undefined) {
+      return [
+        { key: "enter", label: "edit" },
+        { key: "←/→", label: "step" },
       ];
     }
     return (
@@ -380,18 +386,8 @@ export const numberRenderer: FieldRenderer<NumberField, number> = {
       return {};
     }
 
-    // Step-based: Enter/Space steps by step within [min, max], wrapping
+    // Step-based: Enter/Space inline-edit the number, ←/→ fine-tune by step
     if (step !== undefined) {
-      if (
-        matchesKey(data, "enter") ||
-        matchesKey(data, "return") ||
-        data === " "
-      ) {
-        return {
-          consumed: true,
-          commit: stepUp(row.value, step, row.field.min, row.field.max),
-        };
-      }
       if (matchesKey(data, "left")) {
         return {
           consumed: true,
@@ -403,6 +399,34 @@ export const numberRenderer: FieldRenderer<NumberField, number> = {
           consumed: true,
           commit: stepUp(row.value, step, row.field.min, row.field.max),
         };
+      }
+      if (
+        matchesKey(data, "enter") ||
+        matchesKey(data, "return") ||
+        data === " "
+      ) {
+        return handleStringLikeKey<number>(
+          row.field.key,
+          String(row.value),
+          data,
+          args,
+          (buffer) => {
+            const trimmed = buffer.trim();
+            if (trimmed === "") throw new Error("Expected a number");
+            const parsed = Number(trimmed);
+            if (!Number.isFinite(parsed))
+              throw new Error(`Not a number: '${buffer}'`);
+            if (row.field.integer && !Number.isInteger(parsed))
+              throw new Error("Expected an integer");
+            if (typeof row.field.min === "number" && parsed < row.field.min)
+              throw new Error(`Must be ≥ ${row.field.min}`);
+            if (typeof row.field.max === "number" && parsed > row.field.max)
+              throw new Error(`Must be ≤ ${row.field.max}`);
+            if (values && !values.includes(parsed))
+              throw new Error(`Must be one of: ${values.join(", ")}`);
+            return parsed;
+          },
+        );
       }
       return {};
     }

@@ -356,6 +356,11 @@ export class ConfigManager<T extends object> {
       title: this.opts.label,
       configFilename: this.opts.filename,
       mode: "buffered",
+      // MUST match the dir used by load()/save() — without this the modal
+      // initializes its rows from the wrong file (extensions dir fallback),
+      // so an untouched field shows DEFAULTS and a save writes those
+      // defaults over the real config.
+      globalConfigDir: configDir,
       defaults: this.opts.defaults as unknown as Record<string, unknown>,
       inferDefaultScope: () =>
         existsSync(join(cwd, ".pi", this.opts.filename)) ? "project" : "global",
