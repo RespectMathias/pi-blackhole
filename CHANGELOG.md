@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-01
+
 ### Added
 
 - **pi-base config modal for `/blackhole configure`.** ([#41](https://github.com/k0valik/pi-blackhole/pull/41)) The hand-rolled configure overlay is replaced with pi-base's ConfigManager + settings modal (vendored into `src/pi-base/`), with scope-aware editing: global config lives at `<agentDir>/pi-blackhole/` (respecting `PI_CODING_AGENT_DIR`), project config overlays `<cwd>/.pi/pi-blackhole-config.json`.
