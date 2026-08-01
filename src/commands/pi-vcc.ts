@@ -46,10 +46,6 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
           label: "Open configuration overlay [settings]",
         },
         {
-          value: "configure",
-          label: "Open configuration overlay [configure]",
-        },
-        {
           value: "cleanup",
           label: "Remove orphaned pending files [cleanup]",
         },
@@ -57,7 +53,13 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
         { value: "om-on", label: "Enable observational memory [om-on]" },
       ];
       if (!prefix) return subcommands;
-      return subcommands.filter((s) => prefixMatch(s.value, prefix));
+      // "configure" is an accepted alias for "settings" (routed by the
+      // handler); surface the settings entry when the user types either.
+      return subcommands.filter(
+        (s) =>
+          prefixMatch(s.value, prefix) ||
+          (s.value === "settings" && prefixMatch("configure", prefix)),
+      );
     },
     handler: async (args, ctx) => {
       const sessionId = ctx.sessionManager.getSessionId();

@@ -143,20 +143,22 @@ describe("/blackhole command", () => {
     );
   });
 
-  it("surfaces 'configure' and 'settings' as argument completions", () => {
+  it("surfaces a single 'settings' completion (with 'configure' alias matching)", () => {
     const { pi, runtime, completionMap } = createMockEnvironment();
     registerPiVccCommand(pi as any, runtime as any);
 
+    // Exactly one configuration entry — the settings handle, no separate
+    // "configure" entry in the dropdown
     const completions = completionMap.get("blackhole")!("");
     const values = completions.map((c) => c.value);
     expect(values).toContain("settings");
-    expect(values).toContain("configure");
+    expect(values).not.toContain("configure");
 
-    // Typing /blackhole config… should surface the configure alias
+    // Typing /blackhole config… surfaces the settings entry via its alias
     const configMatches = completionMap.get("blackhole")!("config").map(
       (c) => c.value,
     );
-    expect(configMatches).toEqual(["configure"]);
+    expect(configMatches).toEqual(["settings"]);
   });
 
   it("calls ctx.compact with PI_VCC_COMPACT_INSTRUCTION", async () => {
