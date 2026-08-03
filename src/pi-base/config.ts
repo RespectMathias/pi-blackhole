@@ -47,6 +47,8 @@ function cacheSet(key: string, value: CacheHit): void {
 /**
  * Canonical config directory: ~/.pi/agent/extensions/
  */
+const PROTECTED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 export function getExtensionsDir(): string {
   return join(getPiAgentDir(), "extensions");
 }
@@ -213,6 +215,8 @@ export function deepMerge<T extends Record<string, unknown>>(
   const result = { ...base };
 
   for (const key of Object.keys(overrides)) {
+    if (PROTECTED_KEYS.has(key)) continue;
+
     const overrideVal = (overrides as Record<string, unknown>)[key];
 
     if (overrideVal === undefined) {
@@ -443,6 +447,7 @@ export function loadConfig<T extends object>(
 function shallowMerge<T extends object>(base: T, overrides: Partial<T>): T {
   const result = { ...base } as Record<string, unknown>;
   for (const key of Object.keys(overrides as Record<string, unknown>)) {
+    if (PROTECTED_KEYS.has(key)) continue;
     const val = (overrides as Record<string, unknown>)[key];
     if (val !== undefined) {
       result[key] = val;

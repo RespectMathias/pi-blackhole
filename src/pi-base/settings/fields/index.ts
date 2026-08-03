@@ -16,6 +16,7 @@ import {
   secretRenderer,
   stringRenderer,
 } from "./string";
+import { readonlyRenderer } from "./readonly";
 import { textRenderer } from "./text";
 
 export {
@@ -26,13 +27,19 @@ export {
   modelRenderer,
   numberRenderer,
   pathRenderer,
+  readonlyRenderer,
   secretRenderer,
   stringRenderer,
   textRenderer,
 };
 
 /** Map of field discriminator → renderer. */
-export const RENDERERS: Record<Field["type"], FieldRenderer<any, any>> = {
+
+type RenderableField = Exclude<Field, { type: "section" }>;
+export const RENDERERS: Record<
+  RenderableField["type"],
+  FieldRenderer<any, any>
+> = {
   boolean: booleanRenderer,
   enum: enumRenderer,
   string: stringRenderer,
@@ -43,4 +50,5 @@ export const RENDERERS: Record<Field["type"], FieldRenderer<any, any>> = {
   action: actionRenderer,
   model: modelRenderer,
   custom: customRenderer,
+  readonly: readonlyRenderer,
 };

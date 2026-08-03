@@ -137,6 +137,11 @@ function makeSearchableEnumSubmenu(
       );
     }
 
+    function clampSelected(): void {
+      const items = filteredItems();
+      if (selected >= items.length) selected = Math.max(0, items.length - 1);
+    }
+
     const component: Component = {
       render(width: number): string[] {
         const lines: string[] = [];
@@ -219,12 +224,14 @@ function makeSearchableEnumSubmenu(
         if (matchesKey(data, "backspace") || matchesKey(data, "ctrl+h")) {
           search = search.slice(0, -1);
           selected = 0;
+          clampSelected();
           ctx.tui.requestRender();
           return;
         }
         if (data.length === 1 && data >= " " && data !== "\x7f") {
           search += data;
           selected = 0;
+          clampSelected();
           ctx.tui.requestRender();
         }
       },

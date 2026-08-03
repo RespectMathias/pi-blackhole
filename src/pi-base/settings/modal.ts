@@ -28,7 +28,7 @@ import type {
 const DEFAULT_OVERLAY: OverlayOptions = {
   anchor: "center",
   width: "92%",
-  maxHeight: "85%",
+  maxHeight: "95%",
 };
 
 // Singleton guard: track one open modal per ExtensionContext.

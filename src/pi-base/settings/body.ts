@@ -23,6 +23,7 @@ import {
   visibleWidth,
   type Component,
   type TUI,
+  fuzzyMatch,
 } from "@earendil-works/pi-tui";
 import { loadConfig, getExtensionsDir } from "../config.ts";
 import { validateFieldValue } from "./validate-field.ts";
@@ -44,11 +45,11 @@ import {
   responsiveInnerRows,
   wrapLine,
   type FrameOptions,
+  DEFAULT_PADDING_X,
 } from "./frame";
 import { deleteWordBackward, type InlineEditState } from "./inline-edit";
 
-const PREFERRED_INNER_ROWS = 30;
-const LABEL_PAD_TARGET = 28;
+const PREFERRED_INNER_ROWS = 45;
 
 interface InternalRow {
   field: Field;
@@ -60,10 +61,6 @@ interface InternalRow {
   isEditing: boolean;
   /** Pre-computed lowercased search index string for fuzzy filtering. */
   searchIndex: string;
-  /** Pre-computed truncated label text. */
-  labelText: string;
-  /** Pre-computed label padding. */
-  labelPadding: string;
 }
 
 interface ConfirmSubmenuState {
@@ -150,11 +147,6 @@ export function createSettingsModalBody<F extends Field>(
       projectVal = globalVal;
     }
 
-    const labelText = truncateToWidth(field.label, LABEL_PAD_TARGET, "…");
-    const labelPadding = " ".repeat(
-      Math.max(1, LABEL_PAD_TARGET - visibleWidth(labelText)),
-    );
-
     return {
       field,
       get globalValue() {
@@ -182,8 +174,6 @@ export function createSettingsModalBody<F extends Field>(
       isEditing: false,
       searchIndex:
         `${field.label}\n${field.description ?? ""}\n${field.key}`.toLowerCase(),
-      labelText,
-      labelPadding,
     };
   }) as unknown as InternalRow[];
 
@@ -203,14 +193,14 @@ export function createSettingsModalBody<F extends Field>(
       initialGlobalValues.set(
         row.field.key,
         typeof gVal === "object" && gVal !== null
-          ? JSON.parse(JSON.stringify(gVal))
+          ? structuredClone(gVal)
           : gVal,
       );
       const pVal = row.projectValue;
       initialProjectValues.set(
         row.field.key,
         typeof pVal === "object" && pVal !== null
-          ? JSON.parse(JSON.stringify(pVal))
+          ? structuredClone(pVal)
           : pVal,
       );
     }
@@ -319,7 +309,8 @@ export function createSettingsModalBody<F extends Field>(
         out.push(i);
         continue;
       }
-      if (row.searchIndex.includes(query)) out.push(i);
+      const fuzzy = fuzzyMatch(query, row.searchIndex);
+      if (fuzzy.matches) out.push(i);
     }
     cachedVisibleIndices = out;
   }
@@ -425,7 +416,9 @@ export function createSettingsModalBody<F extends Field>(
 
   function mountSubmenu(
     factory: NonNullable<
-      ReturnType<(typeof RENDERERS)[Field["type"]]["handleKey"]>["submenu"]
+      ReturnType<
+        (typeof RENDERERS)[keyof typeof RENDERERS]["handleKey"]
+      >["submenu"]
     >,
     row: InternalRow,
   ): void {
@@ -459,7 +452,9 @@ export function createSettingsModalBody<F extends Field>(
   }
 
   function rendererFor(field: Field) {
-    return RENDERERS[field.type];
+    // Section rows are short-circuited in renderRow before reaching
+    // here; the cast to the actual map keys is safe.
+    return RENDERERS[field.type as keyof typeof RENDERERS];
   }
 
   function dispatchKey(data: string): void {
@@ -823,7 +818,7 @@ export function createSettingsModalBody<F extends Field>(
           if (def !== undefined) {
             const clonedDef =
               typeof def === "object" && def !== null
-                ? JSON.parse(JSON.stringify(def))
+                ? structuredClone(def)
                 : def;
             commitValue(row, clonedDef);
           }
@@ -847,7 +842,7 @@ export function createSettingsModalBody<F extends Field>(
           if (def !== undefined) {
             const clonedDef =
               typeof def === "object" && def !== null
-                ? JSON.parse(JSON.stringify(def))
+                ? structuredClone(def)
                 : def;
             commitValue(row, clonedDef);
           }
@@ -980,7 +975,7 @@ export function createSettingsModalBody<F extends Field>(
         if (def !== undefined) {
           const clonedDef =
             typeof def === "object" && def !== null
-              ? JSON.parse(JSON.stringify(def))
+              ? structuredClone(def)
               : def;
           commitValue(row, clonedDef);
           args.tui.requestRender();
@@ -1215,13 +1210,26 @@ export function createSettingsModalBody<F extends Field>(
     width: number,
     isSelected: boolean,
   ): string {
-    const labelText = row.labelText;
-    // Per-field `dim` overrides the default focus-based coloring. The
-    // override is binary — fields that opt in are saying "this row is
-    // semantically active / inactive, color me regardless of focus".
-    // Selection background still applies on top either way, so a
-    // focused dimmed row stays visibly highlighted via the prefix
-    // chip + selectedBg, just with a muted label.
+    // Section rows: full-width dim heading — no label/value split.
+    if (row.field.type === "section") {
+      const title = (row.field as { value: string }).value;
+      const prefix = isSelected ? args.theme.fg("accent", "▌ ") : "  ";
+      const composed = `${prefix}${args.theme.fg("dim", title)}`;
+      if (isSelected) return args.theme.bg("selectedBg", pad(composed, width));
+      return truncateToWidth(composed, width, "…");
+    }
+
+    // Responsive label width: grow with terminal width so labels and
+    // value cells both expand on wide terminals instead of being
+    // stuck at a fixed 28-col budget. Narrow terminals still get a
+    // usable 28-col floor so long names truncate gracefully.
+    const labelAlloc = Math.min(55, Math.max(28, Math.floor(width * 0.5)));
+    const labelText = truncateToWidth(row.field.label, labelAlloc, "…");
+    const labelPadding = " ".repeat(
+      Math.max(1, labelAlloc - visibleWidth(labelText)),
+    );
+    const valueWidth = Math.max(1, width - labelAlloc - 4);
+
     const dimRaw = row.field.disabled ? true : row.field.dim;
     const dimFlag = typeof dimRaw === "function" ? dimRaw() : dimRaw;
     const labelColor =
@@ -1237,13 +1245,13 @@ export function createSettingsModalBody<F extends Field>(
     const valueText = renderer.renderValue(
       { field: row.field as never, value: row.value as never },
       {
-        width: Math.max(1, width - LABEL_PAD_TARGET - 4),
+        width: valueWidth,
         selected: isSelected,
         isEditing: row.isEditing,
         ctx: fieldRenderContext,
       },
     );
-    const padding = row.labelPadding;
+    const padding = labelPadding;
     const depthIndent = "  ".repeat(row.field.depth ?? 0);
     const prefix = isSelected
       ? args.theme.fg("accent", `${depthIndent}▌ `)
@@ -1452,12 +1460,13 @@ export function createSettingsModalBody<F extends Field>(
     if (useScopeTabs && options.configFilename) {
       const fn = options.configFilename;
       const defs = options.defaults ?? {};
+      const globalDir = options.globalConfigDir ?? getExtensionsDir();
       const freshGlobal = loadConfig<Record<string, unknown>>(fn, defs, {
-        configDir: options.globalConfigDir ?? getExtensionsDir(),
+        configDir: globalDir,
       });
       const freshProject = loadConfig<Record<string, unknown>>(fn, defs, {
         cwd: args.ctx.cwd,
-        configDir: options.globalConfigDir ?? getExtensionsDir(),
+        configDir: globalDir,
       });
       for (const rr of rows) {
         const gv = getNestedValue(freshGlobal, rr.field.key);
@@ -1481,7 +1490,7 @@ export function createSettingsModalBody<F extends Field>(
         iv.set(
           rr.field.key,
           typeof initVal === "object" && initVal !== null
-            ? JSON.parse(JSON.stringify(initVal))
+            ? structuredClone(initVal)
             : initVal,
         );
       }
@@ -1561,19 +1570,20 @@ export function createSettingsModalBody<F extends Field>(
       const borderAccent = (s: string) => args.theme.fg("borderAccent", s);
 
       // Footer hint line
-      const footDiv = `${borderAccent("│")}  ${args.theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))}  ${borderAccent("│")}`;
+      const paddingX = DEFAULT_PADDING_X;
+      const footDiv = `${borderAccent("│")}${" ".repeat(paddingX)}${args.theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))}${" ".repeat(paddingX)}${borderAccent("│")}`;
       frameLines.push(footDiv);
       for (const line of footerRows) {
         const paddedLine = `  ${line}`;
         frameLines.push(
-          `${borderAccent("│")}${pad(paddedLine, contentWidth + 4)}${borderAccent("│")}`,
+          `${borderAccent("│")}${" ".repeat(paddingX)}${pad(paddedLine, contentWidth)}${" ".repeat(paddingX)}${borderAccent("│")}`,
         );
       }
 
       // Action buttons — side by side on one line, styled like tabs.
       // Tab/Shift+Tab cycles through them as individual stops.
       if (actionRows.length > 0) {
-        const actDiv = `${borderAccent("│")}  ${args.theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))}  ${borderAccent("│")}`;
+        const actDiv = `${borderAccent("│")}${" ".repeat(paddingX)}${args.theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))}${" ".repeat(paddingX)}${borderAccent("│")}`;
         frameLines.push(actDiv);
 
         const cells: string[] = [];
@@ -1597,7 +1607,9 @@ export function createSettingsModalBody<F extends Field>(
           }
         }
         const line = pad(cells.join(" "), contentWidth);
-        frameLines.push(`${borderAccent("│")}  ${line}  ${borderAccent("│")}`);
+        frameLines.push(
+          `${borderAccent("│")}${" ".repeat(paddingX)}${line}${" ".repeat(paddingX)}${borderAccent("│")}`,
+        );
       }
 
       // Restore bottom padding and border

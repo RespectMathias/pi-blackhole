@@ -181,6 +181,22 @@ export interface PathField extends FieldBase {
   default?: string;
 }
 
+export interface ReadonlyField extends FieldBase {
+  type: "readonly";
+  value: string;
+  hint?: string;
+  emphasis?: boolean;
+}
+
+/**
+ * Non-interactive section header row. Renders a full-width dim heading with
+ * no interaction — used to group consecutive read-only telemetry rows.
+ */
+export interface SectionField extends FieldBase {
+  type: "section";
+  value: string;
+}
+
 export interface ActionField extends FieldBase {
   type: "action";
   /** Right-hand display value (defaults to `(run)`). */
@@ -285,6 +301,8 @@ export type Field =
   | NumberField
   | SecretField
   | PathField
+  | ReadonlyField
+  | SectionField
   | ActionField
   | ModelField
   | CustomField;

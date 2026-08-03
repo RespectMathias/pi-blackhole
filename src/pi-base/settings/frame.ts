@@ -35,7 +35,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 /** Default horizontal padding inside the frame, in columns. */
-export const DEFAULT_PADDING_X = 2;
+export const DEFAULT_PADDING_X = 1;
 /** Default vertical padding inside the frame, in rows. */
 export const DEFAULT_PADDING_Y = 1;
 /** Total vertical rows consumed by the frame chrome (top + bottom + 2× padY). */

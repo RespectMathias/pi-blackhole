@@ -26,6 +26,10 @@
 
 import { matchesKey, decodeKittyPrintable } from "@earendil-works/pi-tui";
 
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
+
 /** Shared yank buffer for storing killed text. */
 let yankBuffer = "";
 
@@ -53,15 +57,15 @@ interface InlineEditChar {
   end: number;
 }
 
-/** Decompose `text` into its sequence of code-point chars with their
- *  code-unit ranges. Used to keep the cursor on a code-point boundary. */
+/**
+ * Decompose `text` into its sequence of grapheme clusters with their
+ * code-unit ranges. Uses `Intl.Segmenter` so multi-code-unit clusters
+ * (ZWJ emoji, combining-mark sequences, etc.) move as a single unit.
+ */
 export function inlineEditChars(text: string): InlineEditChar[] {
   const out: InlineEditChar[] = [];
-  let offset = 0;
-  for (const ch of text) {
-    const start = offset;
-    offset += ch.length;
-    out.push({ ch, start, end: offset });
+  for (const { segment, index } of GRAPHEME_SEGMENTER.segment(text)) {
+    out.push({ ch: segment, start: index, end: index + segment.length });
   }
   return out;
 }
