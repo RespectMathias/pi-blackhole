@@ -132,7 +132,7 @@ describe("Runtime.resolveModel — fallback chain", () => {
       expect(result.model.id).toBe("primary-model:free");
     }
   });
-  it("preserves a credential-resolved endpoint from request auth", async () => {
+  it("preserves a credential-resolved endpoint from provider auth on configured candidate", async () => {
     writeConfig({
       observerModel: {
         provider: "github-copilot",
@@ -143,7 +143,7 @@ describe("Runtime.resolveModel — fallback chain", () => {
       baseUrl: "https://api.individual.githubcopilot.com",
     });
     const registry = makeRegistry([model], {
-      requestBaseUrl: "https://api.enterprise.githubcopilot.com",
+      providerBaseUrl: "https://api.enterprise.githubcopilot.com",
     });
     const { Runtime } = await import("../src/om/runtime.js");
     const runtime = new Runtime();
@@ -165,7 +165,7 @@ describe("Runtime.resolveModel — fallback chain", () => {
         "https://api.enterprise.githubcopilot.com",
       );
     }
-    expect(registry.getProviderAuth).not.toHaveBeenCalled();
+    expect(registry.getProviderAuth).toHaveBeenCalledWith("github-copilot");
   });
 
   it("falls back to provider auth for registries without request baseUrl", async () => {
@@ -213,6 +213,112 @@ describe("Runtime.resolveModel — fallback chain", () => {
       );
     }
     expect(registry.getProviderAuth).toHaveBeenCalledWith("github-copilot");
+  });
+
+  it("returns original model reference when resolved baseUrl equals model.baseUrl", async () => {
+    writeConfig({
+      observerModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+    const model = makeModel("gpt-5.6-luna", "github-copilot", {
+      baseUrl: "https://api.enterprise.githubcopilot.com",
+    });
+    const registry = makeRegistry([model], {
+      providerBaseUrl: "https://api.enterprise.githubcopilot.com",
+    });
+    const { Runtime } = await import("../src/om/runtime.js");
+    const runtime = new Runtime();
+    runtime.ensureConfig(testDir);
+
+    const result = await runtime.resolveModel({
+      model: undefined,
+      modelRegistry: registry,
+      hasUI: false,
+      stageModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.model).toBe(model);
+    }
+  });
+
+  it("treats whitespace-only baseUrl from provider auth as absent", async () => {
+    writeConfig({
+      observerModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+    const model = makeModel("gpt-5.6-luna", "github-copilot", {
+      baseUrl: "https://api.individual.githubcopilot.com",
+    });
+    const registry = makeRegistry([model], {
+      providerBaseUrl: "  ",
+    });
+    const { Runtime } = await import("../src/om/runtime.js");
+    const runtime = new Runtime();
+    runtime.ensureConfig(testDir);
+
+    const result = await runtime.resolveModel({
+      model: undefined,
+      modelRegistry: registry,
+      hasUI: false,
+      stageModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.model.baseUrl).toBe(
+        "https://api.individual.githubcopilot.com",
+      );
+      expect(result.model).toBe(model);
+    }
+  });
+
+  it("gracefully handles getProviderAuth throwing", async () => {
+    writeConfig({
+      observerModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+    const model = makeModel("gpt-5.6-luna", "github-copilot", {
+      baseUrl: "https://api.individual.githubcopilot.com",
+    });
+    const registry = makeRegistry([model], {});
+    registry.getProviderAuth = vi.fn(async () => {
+      throw new Error("auth service down");
+    });
+    const { Runtime } = await import("../src/om/runtime.js");
+    const runtime = new Runtime();
+    runtime.ensureConfig(testDir);
+
+    const result = await runtime.resolveModel({
+      model: undefined,
+      modelRegistry: registry,
+      hasUI: false,
+      stageModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.model.baseUrl).toBe(
+        "https://api.individual.githubcopilot.com",
+      );
+      expect(result.model).toBe(model);
+    }
   });
 
   it("skips primary model when in cooldown, uses fallback", async () => {
