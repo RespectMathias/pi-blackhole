@@ -246,11 +246,12 @@ ${conversation}`;
   const effectiveMaxTurns =
     args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
   let turnCount = 0;
+  const providerFetch = createProviderFetch(args.providerIdleTimeoutMs);
   const config: AgentLoopConfig & ProviderFetchOption = {
     model,
     apiKey,
     headers,
-    fetch: createProviderFetch(args.providerIdleTimeoutMs),
+    ...(providerFetch ? { fetch: providerFetch } : {}),
     maxTokens: boundedMaxTokens(model, AGENT_LOOP_MAX_TOKENS),
     convertToLlm: (msgs) => msgs as Message[],
     toolExecution: "sequential",

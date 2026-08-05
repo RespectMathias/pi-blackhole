@@ -81,9 +81,15 @@ describe("providerIdleTimeoutMs", () => {
     expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBe(120_000);
   });
 
-  it("ignores invalid timeouts", async () => {
+  it("accepts 0 as explicit disabled", async () => {
     const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
     writeConfig({ providerIdleTimeoutMs: 0 });
+    expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBe(0);
+  });
+
+  it("ignores negative timeouts", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ providerIdleTimeoutMs: -100 });
     expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBeUndefined();
   });
 });

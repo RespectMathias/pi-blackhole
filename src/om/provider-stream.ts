@@ -48,13 +48,19 @@ export function captureRegisteredProviderStreams(
 }
 
 /** Pi 0.81 forwards fetch at runtime but omits it from AgentLoopConfig types. */
-export type ProviderFetchOption = { fetch: typeof fetch };
+export type ProviderFetchOption = { fetch?: typeof fetch };
 
+/**
+ * Intentionally minimal duck-type for undici's per-request dispatcher.
+ *
+ * Current Node/undici only requires `dispatch(options, handler)` on the
+ * dispatcher object passed via `RequestInit.dispatcher`. We avoid importing
+ * undici types to keep this module version-agnostic across Node releases.
+ */
 interface Dispatcher {
   dispatch(options: Record<string, unknown>, handler: unknown): unknown;
 }
 
-const DEFAULT_PROVIDER_IDLE_TIMEOUT_MS = 300_000;
 const GLOBAL_DISPATCHER_SYMBOLS = [
   Symbol.for("undici.globalDispatcher.2"),
   Symbol.for("undici.globalDispatcher.1"),
@@ -75,9 +81,23 @@ function getGlobalDispatcher(): Dispatcher {
   );
 }
 
+/**
+ * Wrap `globalThis.fetch` with a per-request dispatcher that injects `bodyTimeout`.
+ *
+ * Semantics:
+ * - `timeoutMs === undefined` → returns undefined (inherit pi's global default).
+ * - `timeoutMs === 0`        → returns undefined (explicitly disabled).
+ * - `timeoutMs > 0`          → returns a fetch wrapper that applies `bodyTimeout`.
+ *
+ * If the caller already supplied an `init.dispatcher`, we chain through it
+ * rather than silently overwriting it.
+ */
 export function createProviderFetch(
-  timeoutMs = DEFAULT_PROVIDER_IDLE_TIMEOUT_MS,
-): typeof fetch {
+  timeoutMs?: number,
+): typeof fetch | undefined {
+  // Unset or explicitly disabled → let pi's global default / caller setup apply.
+  if (timeoutMs === undefined || timeoutMs === 0) return undefined;
+
   const dispatcher: Dispatcher = {
     dispatch(options, handler) {
       return getGlobalDispatcher().dispatch(
@@ -86,7 +106,27 @@ export function createProviderFetch(
       );
     },
   };
-  return (input, init) => fetch(input, { ...init, dispatcher } as RequestInit);
+
+  return (input, init) => {
+    const callerDispatcher = (init as any)?.dispatcher;
+    if (typeof callerDispatcher?.dispatch === "function") {
+      // Respect caller-provided dispatcher by chaining our timeout through it.
+      const chained: Dispatcher = {
+        dispatch(options, handler) {
+          return callerDispatcher.dispatch(
+            { ...options, bodyTimeout: timeoutMs },
+            handler,
+          );
+        },
+      };
+      return fetch(input, { ...init, dispatcher: chained } as RequestInit & {
+        dispatcher: Dispatcher;
+      });
+    }
+    return fetch(input, { ...init, dispatcher } as RequestInit & {
+      dispatcher: Dispatcher;
+    });
+  };
 }
 
 export function createBridgeStreamFn(streamSimple: any) {
