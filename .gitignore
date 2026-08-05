@@ -18,6 +18,9 @@ tmp/
 .pi/skills/*
 !.pi/skills/lockstep/
 
+# Subagent reports are local-only
+.pi/subagents/
+
 # Windows NTFS alternate data stream artifacts
 *:Zone.Identifier
 

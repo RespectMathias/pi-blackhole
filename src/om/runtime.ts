@@ -25,6 +25,8 @@ import {
 } from "./cooldown.js";
 import { readPendingCursors, writePendingCursors } from "./pending.js";
 import type { PendingOMState } from "./pending.js";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { AuthResult } from "@earendil-works/pi-ai";
 
 export type ResolveResult =
   | {
@@ -63,6 +65,58 @@ export interface ResolveCtx {
   stageModel?: ConfiguredModel;
   /** Fallback models for this stage (from config). */
   stageFallbacks?: ConfiguredModel[];
+}
+
+type AuthWithBaseUrl = {
+  baseUrl?: string;
+};
+
+/**
+ * Preserve the endpoint selected by Pi's credential resolver.
+ *
+ * Pi's `getApiKeyAndHeaders()` returns `ResolvedRequestAuth`, which carries
+ * `apiKey`, `headers`, and `env` but NOT `baseUrl` in supported pi versions
+ * (>=0.81.1).  The only working source for the credential-resolved endpoint
+ * is `getProviderAuth()` (via Pi's `getAuth`), whose `AuthResult.auth.baseUrl`
+ * is populated for OAuth providers like GitHub Copilot.
+ *
+ * The `directBaseUrl` check below is future-proofing: no supported pi
+ * version currently populates it, but if a future version does, we pick
+ * it up without an extra `getProviderAuth` round-trip.
+ */
+async function resolveAuthBaseUrl(
+  modelRegistry: ModelRegistry,
+  model: { provider: string; baseUrl?: string },
+  auth: AuthWithBaseUrl,
+): Promise<string | undefined> {
+  // Future-proofing: if pi ever adds baseUrl to getApiKeyAndHeaders(),
+  // use it directly. No supported version currently does.
+  const directBaseUrl =
+    typeof auth.baseUrl === "string" ? auth.baseUrl.trim() : "";
+  if (directBaseUrl) return directBaseUrl;
+
+  if (typeof modelRegistry.getProviderAuth !== "function") return undefined;
+
+  try {
+    const resolved: AuthResult | undefined =
+      await modelRegistry.getProviderAuth(model.provider);
+    const baseUrl = resolved?.auth?.baseUrl;
+    return typeof baseUrl === "string" && baseUrl.trim()
+      ? baseUrl.trim()
+      : undefined;
+  } catch {
+    // Older registries may not expose provider auth resolution.
+    return undefined;
+  }
+}
+
+async function withResolvedAuthEndpoint(
+  modelRegistry: any,
+  model: any,
+  auth: AuthWithBaseUrl,
+): Promise<any> {
+  const baseUrl = await resolveAuthBaseUrl(modelRegistry, model, auth);
+  return baseUrl && baseUrl !== model.baseUrl ? { ...model, baseUrl } : model;
 }
 
 export interface LaunchCtx {
@@ -250,9 +304,18 @@ export class Runtime {
         continue;
       }
 
+      // NOTE: getProviderAuth is called again inside withResolvedAuthEndpoint
+      // to recover the credential-resolved baseUrl (only GitHub Copilot's
+      // OAuth emits one; other providers pay the call cost but are unaffected).
+      const resolvedModel = await withResolvedAuthEndpoint(
+        ctx.modelRegistry,
+        configured,
+        auth,
+      );
+
       return {
         ok: true,
-        model: configured,
+        model: resolvedModel,
         apiKey: (auth.apiKey as string) ?? "",
         headers: auth.headers as Record<string, string> | undefined,
         cooldownApplied: false,
@@ -281,9 +344,18 @@ export class Runtime {
         };
       }
 
+      // NOTE: getProviderAuth is called again inside withResolvedAuthEndpoint
+      // to recover the credential-resolved baseUrl (only GitHub Copilot's
+      // OAuth emits one; other providers pay the call cost but are unaffected).
+      const resolvedModel = await withResolvedAuthEndpoint(
+        ctx.modelRegistry,
+        sessionModel,
+        auth,
+      );
+
       return {
         ok: true,
-        model: sessionModel,
+        model: resolvedModel,
         apiKey: (auth.apiKey as string) ?? "",
         headers: auth.headers as Record<string, string> | undefined,
         cooldownApplied: false,

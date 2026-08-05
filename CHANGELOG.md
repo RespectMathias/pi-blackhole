@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Credential-resolved provider endpoints are preserved for observational-memory workers on Pi versions whose registry exposes `getProviderAuth()`.** Observer, reflector, and dropper now use the endpoint selected by Pi's auth resolver, preventing GitHub Copilot Business/Enterprise requests from falling back to the Individual endpoint and returning HTTP 421. On older registries without `getProviderAuth()`, the fix degrades silently to the previous behavior.
+
 ## [0.4.3] - 2026-08-01
 
 ### Added
