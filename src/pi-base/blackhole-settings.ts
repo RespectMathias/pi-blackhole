@@ -256,6 +256,17 @@ export const config = new ConfigManager<UnifiedConfig>({
       step: 1,
     },
     {
+      key: "providerIdleTimeoutMs",
+      type: "number",
+      label: "Provider idle timeout (ms)",
+      description:
+        "Body-idle timeout for background provider streams; 0 = disabled, unset = inherit pi's default",
+      value: cfg.providerIdleTimeoutMs ?? 0,
+      min: 0,
+      max: 3_600_000,
+      step: 1000,
+    },
+    {
       key: "fullFoldAlways",
       type: "boolean",
       label: "Preserve OM on first compaction",

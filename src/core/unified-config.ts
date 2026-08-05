@@ -139,6 +139,9 @@ export interface UnifiedConfig {
   observerPreambleMaxTokens: number;
   /** Shared turn cap for background memory agents. */
   agentMaxTurns: number;
+  /** Body-idle timeout for background provider streams. Uses pi's default when unset;
+   *  set to 0 to explicitly disable the wrapper. */
+  providerIdleTimeoutMs?: number;
 
   /** Base model override for all memory workers. */
   model?: OmModelConfig;
@@ -324,6 +327,7 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
     "observerChunkMaxTokens",
     "observerPreambleMaxTokens",
     "agentMaxTurns",
+    "providerIdleTimeoutMs",
   ] as const;
 
   // dropperPressureThreshold: fractional, must be in (0, 1]
@@ -345,9 +349,12 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
     c.dropperPoolFullnessThreshold = raw.dropperPoolFullnessThreshold;
   }
   for (const k of numKeys) {
-    // observerPreambleMaxTokens accepts 0 (auto-compute); everything else must be > 0
+    // observerPreambleMaxTokens and providerIdleTimeoutMs accept 0 (disabled/inherit);
+    // everything else must be > 0.
     const validator =
-      k === "observerPreambleMaxTokens" ? nonNegativeInt : positiveInt;
+      k === "observerPreambleMaxTokens" || k === "providerIdleTimeoutMs"
+        ? nonNegativeInt
+        : positiveInt;
     const v = validator(raw[k]);
     if (v !== undefined) (c as Record<string, unknown>)[k] = v;
   }

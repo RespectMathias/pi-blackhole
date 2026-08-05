@@ -40,6 +40,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "dropperPressureThreshold": 0.70, // Pool-pressure relief valve
   "dropperPoolFullnessThreshold": 0.10, // Min pool fullness before dropper runs
   "agentMaxTurns": 16,            // Max turns per memory agent
+  "providerIdleTimeoutMs": 0,     // Background provider idle timeout in ms (0 = disabled, unset = inherit pi default)
 
   // ── Model configs (edit by hand) ──
   "model": { "provider": "...", "id": "..." },
@@ -303,6 +304,20 @@ Shared turn cap for background memory agents. It is passed as `maxTurns` to `run
 |------|---------|
 | number | 16 |
 
+### `providerIdleTimeoutMs`
+
+Body-idle timeout for background provider streams (observer/reflector/dropper worker HTTP requests). Higher values let background memory jobs tolerate longer silent provider intervals without forcing interactive Pi requests to wait equally long. Applied by wrapping the provider `fetch` with an undici dispatcher that injects `bodyTimeout`.
+
+- **unset** — inherit pi's global provider timeout (no wrapper applied).
+- **`0`** — explicitly disabled (no wrapper applied).
+- **`> 0`** — wait up to this many milliseconds for a response body after the request is sent.
+
+Accepted via plain config or `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS`. Negative values are rejected. WebSocket transports are not affected.
+
+| Type | Default | Range |
+|------|---------|-------|
+| number | unset | `0` or positive integer |
+
 ## Model Configuration
 
 Model overrides are **first-class config keys**, not "unknown keys". They are fully parsed and validated by `loadUnifiedConfig()` and are **only editable via direct file edit** (the `/blackhole configure` overlay preserves them but does not surface them).
@@ -421,6 +436,7 @@ Positive-integer fields (invalid values fall back):
 | `PI_BLACKHOLE_OBSERVER_CHUNK_MAX_TOKENS` | `observerChunkMaxTokens` |
 | `PI_BLACKHOLE_OBSERVER_PREAMBLE_MAX_TOKENS` | `observerPreambleMaxTokens` |
 | `PI_BLACKHOLE_AGENT_MAX_TURNS` | `agentMaxTurns` |
+| `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS` | `providerIdleTimeoutMs` |
 
 Float field (must be in `(0, 1]`):
 

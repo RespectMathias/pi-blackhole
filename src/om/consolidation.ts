@@ -876,6 +876,7 @@ async function runObserverStage(
           "observer",
           stageModelForThinking,
         ),
+        providerIdleTimeoutMs: runtime.config.providerIdleTimeoutMs,
       });
 
       if (result.observations && result.observations.length > 0) {
@@ -1214,6 +1215,7 @@ async function runReflectorStage(
           "reflector",
           stageModelForThinking,
         ),
+        providerIdleTimeoutMs: runtime.config.providerIdleTimeoutMs,
       });
 
       if (!reflections || reflections.length === 0) {
@@ -1512,6 +1514,7 @@ async function runDropperStage(
           "dropper",
           stageModelForThinking,
         ),
+        providerIdleTimeoutMs: runtime.config.providerIdleTimeoutMs,
       });
       const latestReflectionCoverageId = isManualMode(runtime.config)
         ? pending?.reflection?.coversUpToId

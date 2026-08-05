@@ -98,6 +98,14 @@ export const DECLARATIVE_ENV_OVERRIDES: Record<string, EnvOverride> = {
   observerChunkMaxTokens: "PI_BLACKHOLE_OBSERVER_CHUNK_MAX_TOKENS",
   observerPreambleMaxTokens: "PI_BLACKHOLE_OBSERVER_PREAMBLE_MAX_TOKENS",
   agentMaxTurns: "PI_BLACKHOLE_AGENT_MAX_TURNS",
+  // Non-negative integer (0 = disabled, unset = inherit pi default)
+  providerIdleTimeoutMs: {
+    var: "PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS",
+    parse: (raw: string) => {
+      const n = Number(raw);
+      return Number.isInteger(n) && n >= 0 ? n : undefined;
+    },
+  },
   // Float in (0, 1]
   dropperPressureThreshold: {
     var: "PI_BLACKHOLE_DROPPER_PRESSURE_THRESHOLD",

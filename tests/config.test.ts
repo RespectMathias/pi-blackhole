@@ -69,6 +69,31 @@ describe("Config defaults", () => {
   });
 });
 
+describe("providerIdleTimeoutMs", () => {
+  it("uses the provider default when omitted", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBeUndefined();
+  });
+
+  it("accepts a positive timeout", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ providerIdleTimeoutMs: 120_000 });
+    expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBe(120_000);
+  });
+
+  it("accepts 0 as explicit disabled", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ providerIdleTimeoutMs: 0 });
+    expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBe(0);
+  });
+
+  it("ignores negative timeouts", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ providerIdleTimeoutMs: -100 });
+    expect(loadUnifiedConfig(testDir).providerIdleTimeoutMs).toBeUndefined();
+  });
+});
+
 describe("dropperPressureThreshold", () => {
   it("defaults to 0.70 when no config file exists", async () => {
     const { loadUnifiedConfig } = await import("../src/core/unified-config.js");

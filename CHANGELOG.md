@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Isolated provider idle timeout for background memory jobs.** ([#48](https://github.com/k0valik/pi-blackhole/pull/48), thanks @FelikZ) Optional `providerIdleTimeoutMs` lets observer/reflector/dropper worker HTTP requests tolerate longer silent provider intervals without forcing interactive Pi requests to wait equally long, by wrapping the provider `fetch` with an undici dispatcher that injects `bodyTimeout`. Unset inherits pi's global default; `0` disables; `> 0` sets a millisecond cap. Configurable via config file, `/blackhole configure`, or `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS`.
+
 ### Fixed
 
 - **Credential-resolved provider endpoints are preserved for observational-memory workers on Pi versions whose registry exposes `getProviderAuth()`.** Observer, reflector, and dropper now use the endpoint selected by Pi's auth resolver, preventing GitHub Copilot Business/Enterprise requests from falling back to the Individual endpoint and returning HTTP 421. On older registries without `getProviderAuth()`, the fix degrades silently to the previous behavior.
