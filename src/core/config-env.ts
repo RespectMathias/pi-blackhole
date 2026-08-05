@@ -114,4 +114,13 @@ export const DECLARATIVE_ENV_OVERRIDES: Record<string, EnvOverride> = {
       return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
     },
   },
+  // Comma-separated provider skip list ("provider" or "provider:api")
+  skipForProviders: {
+    var: "PI_BLACKHOLE_SKIP_PROVIDERS",
+    parse: (raw: string) =>
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+  },
 };

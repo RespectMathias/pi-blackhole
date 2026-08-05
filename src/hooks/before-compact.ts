@@ -11,6 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "fs";
 import { compile } from "../core/summarize";
+import { matchesSkippedProvider } from "../core/provider-skip.js";
 import type { PiVccCompactionDetails } from "../details";
 import {
   buildCompactionProjection,
@@ -303,6 +304,19 @@ export const registerBeforeCompactHook = (
     );
     const trace = (ev: string, d?: Record<string, unknown>) =>
       debugLog(ev, d, omRuntime.config.debugLog === true);
+
+    // Provider-aware skip: another engine owns compaction for this provider
+    // (e.g. pi-codex-compaction for OpenAI Codex). Step aside entirely so
+    // exactly one compaction engine acts per turn, regardless of extension
+    // registration order. Applies to auto and explicit (/blackhole) paths.
+    if (matchesSkippedProvider(omRuntime.config, ctx.model)) {
+      trace("before_compact.provider_skipped", {
+        provider: (ctx.model as { provider?: unknown } | null | undefined)
+          ?.provider,
+        skipForProviders: omRuntime.config.skipForProviders,
+      });
+      return;
+    }
 
     trace("before_compact.enter", {
       customInstructions,

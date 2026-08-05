@@ -38,7 +38,10 @@ afterAll(() => {
 });
 
 // Minimal ExtensionAPI stub: capture handler + provide ctx with mocked ui.notify
-function createMockPi(initialConfig?: Record<string, unknown>) {
+function createMockPi(
+  initialConfig?: Record<string, unknown>,
+  ctxModel?: unknown,
+) {
   let handler: ((event: any, ctx: any) => any) | undefined;
   const notifyCalls: Array<{ msg: string; level: string }> = [];
   const config = {
@@ -52,6 +55,7 @@ function createMockPi(initialConfig?: Record<string, unknown>) {
   const ctx = {
     cwd: tmpDir,
     hasUI: true,
+    model: ctxModel,
     ui: {
       notify: (msg: string, level: string) => {
         notifyCalls.push({ msg, level });
@@ -487,5 +491,103 @@ describe("registerBeforeCompactHook: CompactionStats population", () => {
     // compactAll: everything summarized, nothing kept
     expect(omRuntime.compactionStats!.compactAll).toBe(true);
     expect(omRuntime.compactionStats!.keptUserTurns).toBe(0);
+  });
+});
+
+describe("registerBeforeCompactHook: provider-aware skip", () => {
+  const codexModel = {
+    provider: "openai-codex",
+    api: "openai-codex-responses",
+    id: "gpt-5.5",
+  };
+
+  test("listed provider (Codex) → hook steps aside entirely (returns undefined)", () => {
+    const { pi, invoke, omRuntime } = createMockPi(
+      { skipForProviders: ["openai-codex"] },
+      codexModel,
+    );
+    registerBeforeCompactHook(pi, omRuntime);
+    const entries = [
+      msg("m1", "user", "hello"),
+      msg("m2", "assistant", "hi"),
+      msg("m3", "user", "more"),
+      msg("m4", "assistant", "reply"),
+    ];
+    // Even with plenty of live messages (which would normally compact), the
+    // Codex provider must be left to pi-codex-compaction.
+    expect(invoke(makeEvent(entries))).toBeUndefined();
+  });
+
+  test("listed provider:api (Codex responses) → steps aside", () => {
+    const { pi, invoke, omRuntime } = createMockPi(
+      { skipForProviders: ["openai-codex:openai-codex-responses"] },
+      codexModel,
+    );
+    registerBeforeCompactHook(pi, omRuntime);
+    expect(
+      invoke(
+        makeEvent([
+          msg("m1", "user"),
+          msg("m2", "assistant"),
+          msg("m3", "user"),
+          msg("m4", "assistant"),
+        ]),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("explicit /blackhole on a listed provider → still steps aside", () => {
+    const { pi, invoke, omRuntime } = createMockPi(
+      { skipForProviders: ["openai-codex"] },
+      codexModel,
+    );
+    registerBeforeCompactHook(pi, omRuntime);
+    expect(
+      invoke(
+        makeEvent(
+          [
+            msg("m1", "user"),
+            msg("m2", "assistant"),
+            msg("m3", "user"),
+            msg("m4", "assistant"),
+          ],
+          PI_VCC_COMPACT_INSTRUCTION,
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("non-listed provider (non-Codex) → normal blackhole compaction", () => {
+    const { pi, invoke, omRuntime } = createMockPi(
+      { skipForProviders: ["openai-codex"] },
+      { provider: "anthropic", api: "completions", id: "claude" },
+    );
+    registerBeforeCompactHook(pi, omRuntime);
+    const result = invoke(
+      makeEvent([
+        msg("m1", "user", "a"),
+        msg("m2", "assistant", "b"),
+        msg("m3", "user", "c"),
+        msg("m4", "assistant", "d"),
+      ]),
+    );
+    expect(result.cancel).toBeUndefined();
+    expect(result.compaction).toBeDefined();
+    expect(typeof result.compaction.summary).toBe("string");
+    expect(result.compaction.summary.length).toBeGreaterThan(0);
+  });
+
+  test("no skip list → Codex provider still compacts (existing behavior preserved)", () => {
+    const { pi, invoke, omRuntime } = createMockPi({}, codexModel);
+    registerBeforeCompactHook(pi, omRuntime);
+    const result = invoke(
+      makeEvent([
+        msg("m1", "user", "a"),
+        msg("m2", "assistant", "b"),
+        msg("m3", "user", "c"),
+        msg("m4", "assistant", "d"),
+      ]),
+    );
+    expect(result.compaction).toBeDefined();
   });
 });
