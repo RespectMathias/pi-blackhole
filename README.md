@@ -298,6 +298,7 @@ Everything else has sensible defaults.
 | `dropperInputMaxTokens` | `80000` | Max dropper input budget |
 | `dropperPressureThreshold` | `0.70` | Fraction of `reflectorInputMaxTokens` at which dropper runs even without new data (pressure relief valve) |
 | `agentMaxTurns` | `16` | Max agent-loop turns per worker per run |
+| `providerIdleTimeoutMs` | unset | Body-idle timeout for background provider streams (ms); `0` = disabled, unset = inherit pi's default |
 | `debug` | `false` | Pre-compaction snapshot to `/tmp/pi-blackhole-debug.json` |
 | `debugLog` | `false` | Continuous JSONL debug log to `~/.pi/agent/pi-blackhole/debug.ndjson` |
 

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Isolated provider idle timeout for background memory jobs.** ([#48](https://github.com/k0valik/pi-blackhole/pull/48), thanks @FelikZ) Optional `providerIdleTimeoutMs` lets observer/reflector/dropper worker HTTP requests tolerate longer silent provider intervals without forcing interactive Pi requests to wait equally long, by wrapping the provider `fetch` with an undici dispatcher that injects `bodyTimeout`. Unset inherits pi's global default; `0` disables; `> 0` sets a millisecond cap. Configurable via config file, `/blackhole configure`, or `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS`.
+
 ## [0.4.3] - 2026-08-01
 
 ### Added
