@@ -47,6 +47,48 @@ export function captureRegisteredProviderStreams(
   });
 }
 
+/** Pi 0.81 forwards fetch at runtime but omits it from AgentLoopConfig types. */
+export type ProviderFetchOption = { fetch: typeof fetch };
+
+interface Dispatcher {
+  dispatch(options: Record<string, unknown>, handler: unknown): unknown;
+}
+
+const DEFAULT_PROVIDER_IDLE_TIMEOUT_MS = 300_000;
+const GLOBAL_DISPATCHER_SYMBOLS = [
+  Symbol.for("undici.globalDispatcher.2"),
+  Symbol.for("undici.globalDispatcher.1"),
+];
+
+function getGlobalDispatcher(): Dispatcher {
+  for (const symbol of GLOBAL_DISPATCHER_SYMBOLS) {
+    const dispatcher = (globalThis as Record<symbol, unknown>)[symbol];
+    if (
+      dispatcher &&
+      typeof (dispatcher as Dispatcher).dispatch === "function"
+    ) {
+      return dispatcher as Dispatcher;
+    }
+  }
+  throw new Error(
+    "Blackhole provider idle timeout requires Pi's Undici dispatcher",
+  );
+}
+
+export function createProviderFetch(
+  timeoutMs = DEFAULT_PROVIDER_IDLE_TIMEOUT_MS,
+): typeof fetch {
+  const dispatcher: Dispatcher = {
+    dispatch(options, handler) {
+      return getGlobalDispatcher().dispatch(
+        { ...options, bodyTimeout: timeoutMs },
+        handler,
+      );
+    },
+  };
+  return (input, init) => fetch(input, { ...init, dispatcher } as RequestInit);
+}
+
 export function createBridgeStreamFn(streamSimple: any) {
   const PROVIDER_STREAMS_KEY = Symbol.for("pi-blackhole:provider-streams");
   return (model: any, ctx: any, opts: any) => {

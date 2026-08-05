@@ -139,6 +139,8 @@ export interface UnifiedConfig {
   observerPreambleMaxTokens: number;
   /** Shared turn cap for background memory agents. */
   agentMaxTurns: number;
+  /** Body-idle timeout for background provider streams. Uses 5 minutes when unset. */
+  providerIdleTimeoutMs?: number;
 
   /** Base model override for all memory workers. */
   model?: OmModelConfig;
@@ -324,6 +326,7 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
     "observerChunkMaxTokens",
     "observerPreambleMaxTokens",
     "agentMaxTurns",
+    "providerIdleTimeoutMs",
   ] as const;
 
   // dropperPressureThreshold: fractional, must be in (0, 1]

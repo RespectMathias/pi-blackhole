@@ -49,6 +49,21 @@ describe("runObserver", () => {
     allowedSourceEntryIds: ["entry-a"],
   };
 
+  it("passes the isolated provider fetch through agent-loop config", async () => {
+    let providerFetch: unknown;
+    const loop = fakeAgentLoop((_prompts, _context, config) => {
+      providerFetch = config.fetch;
+    });
+
+    await runObserver({
+      ...baseArgs,
+      agentLoop: loop,
+      providerIdleTimeoutMs: 120_000,
+    });
+
+    expect(providerFetch).toBeTypeOf("function");
+  });
+
   it("keeps core observer prompt rules", async () => {
     let systemPrompt = "";
     const loop = fakeAgentLoop((_prompts, context) => {

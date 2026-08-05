@@ -12,7 +12,11 @@ import {
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
 import type { Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { createBridgeStreamFn } from "../../provider-stream.js";
+import {
+  createBridgeStreamFn,
+  createProviderFetch,
+  type ProviderFetchOption,
+} from "../../provider-stream.js";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -47,6 +51,7 @@ interface RunReflectorArgs {
   streamFn?: (model: any, context: any, options: any) => any;
   maxTurns?: number;
   thinkingLevel?: ModelThinkingLevel;
+  providerIdleTimeoutMs?: number;
 }
 
 const RecordReflectionsSchema = Type.Object({
@@ -180,10 +185,11 @@ export async function runReflector(
   const effectiveMaxTurns =
     args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
   let turnCount = 0;
-  const config: AgentLoopConfig = {
+  const config: AgentLoopConfig & ProviderFetchOption = {
     model,
     apiKey,
     headers,
+    fetch: createProviderFetch(args.providerIdleTimeoutMs),
     maxTokens: boundedMaxTokens(model, AGENT_LOOP_MAX_TOKENS),
     convertToLlm: (msgs) => msgs as Message[],
     toolExecution: "sequential",
