@@ -11,7 +11,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "fs";
 import { compile } from "../core/summarize";
-import { matchesSkippedProvider } from "../core/provider-skip.js";
+import {
+  getModelProvider,
+  matchesSkippedProvider,
+} from "../core/provider-skip.js";
 import type { PiVccCompactionDetails } from "../details";
 import {
   buildCompactionProjection,
@@ -311,8 +314,7 @@ export const registerBeforeCompactHook = (
     // registration order. Applies to auto and explicit (/blackhole) paths.
     if (matchesSkippedProvider(omRuntime.config, ctx.model)) {
       trace("before_compact.provider_skipped", {
-        provider: (ctx.model as { provider?: unknown } | null | undefined)
-          ?.provider,
+        provider: getModelProvider(ctx.model),
         skipForProviders: omRuntime.config.skipForProviders,
       });
       return;

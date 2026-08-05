@@ -9,30 +9,42 @@
  * of extension registration order.
  */
 
+type ProviderModel = { provider: string; api?: unknown };
+
+function isProviderModel(model: unknown): model is ProviderModel {
+  if (model === null || typeof model !== "object" || !("provider" in model)) {
+    return false;
+  }
+
+  const { provider } = model;
+  return typeof provider === "string" && provider.length > 0;
+}
+
+export function getModelProvider(model: unknown): string | undefined {
+  return isProviderModel(model) ? model.provider : undefined;
+}
+
 /** True when the active model's provider (or provider:api) is in skipForProviders. */
 export function matchesSkippedProvider(
   config: { skipForProviders?: string[] },
   model: unknown,
 ): boolean {
   const list = config.skipForProviders;
-  if (
-    !list ||
-    list.length === 0 ||
-    model === null ||
-    typeof model !== "object"
-  ) {
-    return false;
-  }
-  const { provider, api } = model as { provider?: unknown; api?: unknown };
-  if (typeof provider !== "string" || provider.length === 0) return false;
+  if (!list || list.length === 0 || !isProviderModel(model)) return false;
+
   for (const entry of list) {
     const trimmed = entry.trim();
     if (trimmed.length === 0) continue;
     const [entryProvider, entryApi] = trimmed.split(":", 2);
-    if (entryProvider !== provider) continue;
-    // Bare provider entry skips any api of that provider; "provider:api"
-    // skips only that exact api (e.g. "openai-codex:openai-codex-responses").
-    if (entryApi === undefined || entryApi === api) return true;
+    if (entryProvider !== model.provider) continue;
+    // Bare provider entry skips any api. "provider:" targets models with no
+    // api, while "provider:api" matches that exact api.
+    if (
+      entryApi === undefined ||
+      (entryApi === "" ? model.api === undefined : entryApi === model.api)
+    ) {
+      return true;
+    }
   }
   return false;
 }

@@ -40,6 +40,14 @@ describe("matchesSkippedProvider", () => {
     ).toBe(false);
   });
 
+  test("trailing-colon entry skips models without an api", () => {
+    const cfg = { skipForProviders: ["openai-codex:"] };
+    expect(matchesSkippedProvider(cfg, { provider: "openai-codex" })).toBe(
+      true,
+    );
+    expect(matchesSkippedProvider(cfg, codex)).toBe(false);
+  });
+
   test("non-listed providers and non-codex models are not skipped", () => {
     expect(
       matchesSkippedProvider({ skipForProviders: ["openai-codex"] }, other),
