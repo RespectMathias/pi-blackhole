@@ -65,6 +65,48 @@ export interface ResolveCtx {
   stageFallbacks?: ConfiguredModel[];
 }
 
+type AuthWithOptionalEndpoint = {
+  baseUrl?: unknown;
+};
+
+/**
+ * Preserve the endpoint selected by Pi's credential resolver.
+ *
+ * Newer Pi versions expose baseUrl on getApiKeyAndHeaders(). Older versions
+ * keep it on getProviderAuth(), so use that as a backwards-compatible fallback.
+ */
+async function resolveAuthBaseUrl(
+  modelRegistry: any,
+  model: any,
+  auth: AuthWithOptionalEndpoint,
+): Promise<string | undefined> {
+  const directBaseUrl =
+    typeof auth.baseUrl === "string" ? auth.baseUrl.trim() : "";
+  if (directBaseUrl) return directBaseUrl;
+
+  if (typeof modelRegistry.getProviderAuth !== "function") return undefined;
+
+  try {
+    const resolved = await modelRegistry.getProviderAuth(model.provider);
+    const baseUrl = resolved?.auth?.baseUrl;
+    return typeof baseUrl === "string" && baseUrl.trim()
+      ? baseUrl.trim()
+      : undefined;
+  } catch {
+    // Older registries may not expose provider auth resolution.
+    return undefined;
+  }
+}
+
+async function withResolvedAuthEndpoint(
+  modelRegistry: any,
+  model: any,
+  auth: AuthWithOptionalEndpoint,
+): Promise<any> {
+  const baseUrl = await resolveAuthBaseUrl(modelRegistry, model, auth);
+  return baseUrl && baseUrl !== model.baseUrl ? { ...model, baseUrl } : model;
+}
+
 export interface LaunchCtx {
   hasUI: boolean;
   ui?: { notify: Notify };
@@ -250,9 +292,15 @@ export class Runtime {
         continue;
       }
 
+      const resolvedModel = await withResolvedAuthEndpoint(
+        ctx.modelRegistry,
+        configured,
+        auth,
+      );
+
       return {
         ok: true,
-        model: configured,
+        model: resolvedModel,
         apiKey: (auth.apiKey as string) ?? "",
         headers: auth.headers as Record<string, string> | undefined,
         cooldownApplied: false,
@@ -281,9 +329,15 @@ export class Runtime {
         };
       }
 
+      const resolvedModel = await withResolvedAuthEndpoint(
+        ctx.modelRegistry,
+        sessionModel,
+        auth,
+      );
+
       return {
         ok: true,
-        model: sessionModel,
+        model: resolvedModel,
         apiKey: (auth.apiKey as string) ?? "",
         headers: auth.headers as Record<string, string> | undefined,
         cooldownApplied: false,

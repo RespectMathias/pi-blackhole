@@ -63,7 +63,15 @@ function makeModel(
   };
 }
 
-function makeRegistry(models: ReturnType<typeof makeModel>[]) {
+type RegistryOptions = {
+  requestBaseUrl?: string;
+  providerBaseUrl?: string;
+};
+
+function makeRegistry(
+  models: ReturnType<typeof makeModel>[],
+  options: RegistryOptions = {},
+) {
   return {
     models,
     find: vi.fn((p: string, id: string) =>
@@ -74,7 +82,13 @@ function makeRegistry(models: ReturnType<typeof makeModel>[]) {
       ok: true,
       apiKey: "sk-test",
       headers: undefined,
+      ...(options.requestBaseUrl ? { baseUrl: options.requestBaseUrl } : {}),
     })),
+    getProviderAuth: vi.fn(async () =>
+      options.providerBaseUrl
+        ? { auth: { baseUrl: options.providerBaseUrl } }
+        : undefined,
+    ),
   };
 }
 
@@ -117,6 +131,88 @@ describe("Runtime.resolveModel — fallback chain", () => {
     if (result.ok) {
       expect(result.model.id).toBe("primary-model:free");
     }
+  });
+  it("preserves a credential-resolved endpoint from request auth", async () => {
+    writeConfig({
+      observerModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+    const model = makeModel("gpt-5.6-luna", "github-copilot", {
+      baseUrl: "https://api.individual.githubcopilot.com",
+    });
+    const registry = makeRegistry([model], {
+      requestBaseUrl: "https://api.enterprise.githubcopilot.com",
+    });
+    const { Runtime } = await import("../src/om/runtime.js");
+    const runtime = new Runtime();
+    runtime.ensureConfig(testDir);
+
+    const result = await runtime.resolveModel({
+      model: undefined,
+      modelRegistry: registry,
+      hasUI: false,
+      stageModel: {
+        provider: "github-copilot",
+        id: "gpt-5.6-luna",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.model.baseUrl).toBe(
+        "https://api.enterprise.githubcopilot.com",
+      );
+    }
+    expect(registry.getProviderAuth).not.toHaveBeenCalled();
+  });
+
+  it("falls back to provider auth for registries without request baseUrl", async () => {
+    writeConfig({
+      observerModel: {
+        provider: "github-copilot",
+        id: "cooled-model",
+        cooldownHours: 24,
+      },
+    });
+    const { recordCooldown } = await import("../src/om/cooldown.js");
+    recordCooldown(
+      {
+        provider: "github-copilot",
+        id: "cooled-model",
+        cooldownHours: 24,
+      },
+      "test cooldown",
+      "observer",
+    );
+    const sessionModel = makeModel("session-model", "github-copilot", {
+      baseUrl: "https://api.individual.githubcopilot.com",
+    });
+    const registry = makeRegistry([sessionModel], {
+      providerBaseUrl: "https://api.enterprise.githubcopilot.com",
+    });
+    const { Runtime } = await import("../src/om/runtime.js");
+    const runtime = new Runtime();
+    runtime.ensureConfig(testDir);
+
+    const result = await runtime.resolveModel({
+      model: sessionModel,
+      modelRegistry: registry,
+      hasUI: false,
+      stageModel: {
+        provider: "github-copilot",
+        id: "cooled-model",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.model.baseUrl).toBe(
+        "https://api.enterprise.githubcopilot.com",
+      );
+    }
+    expect(registry.getProviderAuth).toHaveBeenCalledWith("github-copilot");
   });
 
   it("skips primary model when in cooldown, uses fallback", async () => {
