@@ -148,7 +148,7 @@ export class Runtime {
   autoCompactionController: AbortController | null = null;
   /** Mid-run (turn_end) compaction is suspended after a failed/cancelled attempt
    * at the current pressure level. Cleared when accumulated tokens drop below
-   * the threshold again (i.e. a compaction ran). Prevents abort/cancel thrash. */
+   * the threshold again (i.e. a compaction ran). Prevents per-turn retry thrash. */
   midRunCompactionSuspended = false;
   resolveFailureNotified = false;
   lastObserverError: string | undefined;

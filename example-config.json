@@ -7,7 +7,7 @@
   "compaction": "auto",
   "compactionEngine": "blackhole",
   "tailBehavior": "minimal",
-  "midRunCompaction": "resume",
+  "midRunCompaction": "off",
 
   "skipForProviders": [],
   "_comment_skipForProviders": "EXPERIMENTAL compatibility shim (pi-codex-compaction coexistence): providers for which blackhole steps aside entirely — no compaction, no observational-memory consolidation. Entries: bare provider or 'provider:api'. Env override PI_BLACKHOLE_SKIP_PROVIDERS (comma-separated). Default [] = disabled. Deliberately unsurfaced in README/CONFIG.md; do not rely on it.",

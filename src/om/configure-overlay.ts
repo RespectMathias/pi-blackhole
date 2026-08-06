@@ -72,7 +72,7 @@ const FIELDS: FieldDef[] = [
     section: "Compaction",
     enumValues: ["resume", "pause", "off"],
     helpText:
-      "resume=compact at threshold during tool loops and continue (default), pause=compact and stop, off=only check when run ends",
+      "resume=transparent same-run compact (experimental), pause=interrupt+compact+stop, off=end-of-run only (default)",
   },
   {
     key: "compactAfterTokens",

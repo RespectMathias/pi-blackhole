@@ -22,7 +22,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "compaction": "auto",           // "auto" | "manual" | "off"
   "compactionEngine": "blackhole", // "blackhole" | "pi-default"
   "tailBehavior": "minimal",   // "pi-default" | "minimal"
-  "midRunCompaction": "off",   // "resume" | "pause" | "off" (default: off — unsafe with subagent workflows)
+  "midRunCompaction": "off",    // "resume" | "pause" | "off" (default: off)
   "compactAfterTokens": 81000,    // Token threshold for auto-compaction
 
   // ── Observational Memory ──
@@ -152,23 +152,27 @@ Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
 
 | Value | Behavior |
 |-------|----------|
-| `"resume"` | Compact at threshold mid-run, then inject a resume message (`triggerTurn`) so the agent continues the task with the compacted context (explicit opt-in — unsafe with subagent/background-work extensions) |
-| `"pause"` | Compact at threshold mid-run, but stop — the user continues manually |
-| `"off"` | No mid-run evaluation; threshold is only checked when the agent finishes a run (default — safe with subagent/background-work extensions) |
+| `"resume"` *(experimental)* | Compact transparently at an awaited `turn_end`, then continue inside the **same** agent run and outer `session.prompt()` promise. No run abort and no synthetic continuation message. |
+| `"pause"` | Use Pi's native interrupting `ctx.compact()` at the threshold, then stop. The user continues manually. |
+| `"off"` | No mid-run evaluation; only check the threshold when the agent finishes a run (default). |
 
-**Why compaction interrupts the run:** Pi's `compact()` aborts the in-flight agent operation by design. `turn_end` is a clean boundary — all tool results of the turn are already persisted, so at most one just-started LLM call is wasted. With `"resume"`, the agent picks the task back up immediately; the compaction summary plus the kept tail (see `tailBehavior`) carry the task state across.
+`"resume"` reuses Pi's native summary, `session_before_compact`, session-entry, and context-rebuild pipeline. Blackhole's runtime adapter suppresses only the compaction method's initial internal quiesce (`abort`, plus disconnect on older Pi), then refreshes the low-level loop from the compacted `agent.state.messages` before another provider request. Completed tools stay paired, the active run signal is not aborted, background agents do not receive a false interrupt, and nested runners keep awaiting their original prompt promise.
 
-**Re-trigger safety:** after a compaction, accumulated tokens are counted from the fresh compaction entry, so the threshold naturally resets — no compact/resume loops.
+**Compatibility is fail-closed.** The adapter recognizes the known Pi 0.81 legacy and Pi 0.84 connected-listener compact shapes. If Pi internals drift, `"resume"` refuses the mid-run attempt, leaves the current run alive, reports the incompatibility, and suspends retries at that pressure level. It never falls back to the old abort + `blackhole-resume` path.
+
+`"pause"` is intentionally different: it calls public `ctx.compact()`, which aborts the active run by design. That abort may propagate to extensions which treat the run signal as user cancellation, so use `"resume"` for transparent/subagent workflows.
+
+**Re-trigger safety:** after a successful compaction, accumulated tokens are counted from the fresh compaction entry. Failed or cancelled attempts are suspended until pressure drops below the threshold.
 
 ```jsonc
-// Compact mid-run and keep working (explicit opt-in; unsafe with subagent workflows)
+// Default: only evaluate when the run ends
+{ "midRunCompaction": "off" }
+
+// Opt in to transparent same-run compaction during long tool loops
 { "midRunCompaction": "resume" }
 
-// Compact mid-run but hand control back to the user
+// Interrupt the run, compact, and hand control back to the user
 { "midRunCompaction": "pause" }
-
-// Safe default: only evaluate when the run ends
-{ "midRunCompaction": "off" }
 ```
 
 ### `compactAfterTokens`
@@ -399,6 +403,7 @@ Boolean parsing accepts `1`, `true`, `yes`, `on` (and `0`, `false`, `no`, `off`)
 |----------|-----------|---------|
 | `PI_BLACKHOLE_COMPACTION` | `compaction` (`auto` \| `manual` \| `off`) | `PI_BLACKHOLE_COMPACTION=manual` |
 | `PI_BLACKHOLE_COMPACTION_ENGINE` | `compactionEngine` (`blackhole` \| `pi-default`) | `PI_BLACKHOLE_COMPACTION_ENGINE=pi-default` |
+| `PI_BLACKHOLE_MID_RUN_COMPACTION` | `midRunCompaction` (`resume` \| `pause` \| `off`) | `PI_BLACKHOLE_MID_RUN_COMPACTION=resume` |
 
 ### Passive mode (legacy)
 

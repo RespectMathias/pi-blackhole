@@ -92,10 +92,9 @@ export interface UnifiedConfig {
 
   /** Mid-run auto-compaction (turn_end trigger, fires while the agent is still
    *  executing tool loops — agent_end alone never fires during long runs).
-   *  "resume" — compact at threshold and inject a resume message so the agent
-   *             continues the task (default)
-   *  "pause"  — compact at threshold but stop; user continues manually
-   *  "off"    — only evaluate the threshold when the agent finishes a run */
+   *  "resume" — compact transparently at the turn boundary; the same run continues (opt-in)
+   *  "pause"  — use Pi's interrupting compaction; user continues manually
+   *  "off"    — only evaluate the threshold when the agent finishes a run (default) */
   midRunCompaction: "resume" | "pause" | "off";
 
   /** How much recent transcript to keep visible after compaction.
@@ -565,6 +564,19 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
     } else {
       console.warn(
         `blackhole: invalid PI_BLACKHOLE_COMPACTION_ENGINE value "${envCompactionEngine}"; ignoring`,
+      );
+    }
+  }
+
+  // ── Env override — mid-run compaction ──
+  const envMidRunCompaction = process.env.PI_BLACKHOLE_MID_RUN_COMPACTION;
+  if (envMidRunCompaction !== undefined) {
+    const trimmed = envMidRunCompaction.trim().toLowerCase();
+    if (isMidRunCompaction(trimmed)) {
+      merged.midRunCompaction = trimmed as "resume" | "pause" | "off";
+    } else {
+      console.warn(
+        `blackhole: invalid PI_BLACKHOLE_MID_RUN_COMPACTION value "${envMidRunCompaction}"; ignoring`,
       );
     }
   }

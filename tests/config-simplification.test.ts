@@ -80,6 +80,16 @@ describe("New config keys — defaults", () => {
     expect(config.compaction).toBe("auto");
     expect(config.compactionEngine).toBe("blackhole");
     expect(config.tailBehavior).toBe("minimal");
+    expect(config.midRunCompaction).toBe("off");
+  });
+
+  it("T1a: existing configs without midRunCompaction remain off", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ memory: true });
+
+    const config = loadUnifiedConfig(testDir);
+
+    expect(config.midRunCompaction).toBe("off");
   });
 
   it("T1b: existing old DEFAULTS are preserved", async () => {
@@ -115,6 +125,15 @@ describe("New key parsing", () => {
     writeConfig({ tailBehavior: "minimal" });
     const config = loadUnifiedConfig(testDir);
     expect(config.tailBehavior).toBe("minimal");
+  });
+
+  it("parses an explicit midRunCompaction opt-in", async () => {
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ midRunCompaction: "resume" });
+
+    const config = loadUnifiedConfig(testDir);
+
+    expect(config.midRunCompaction).toBe("resume");
   });
 
   it("T11: invalid compaction value falls back to default", async () => {
@@ -301,6 +320,15 @@ describe("Env overrides", () => {
 
     const config = loadUnifiedConfig(testDir);
     expect(config.compactionEngine).toBe("pi-default");
+  });
+
+  it("PI_BLACKHOLE_MID_RUN_COMPACTION env var overrides midRunCompaction", async () => {
+    process.env.PI_BLACKHOLE_MID_RUN_COMPACTION = "resume";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ midRunCompaction: "off" });
+
+    const config = loadUnifiedConfig(testDir);
+    expect(config.midRunCompaction).toBe("resume");
   });
 });
 

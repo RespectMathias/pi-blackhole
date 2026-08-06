@@ -40,6 +40,15 @@ function parseCompactionEngineEnv(
     : undefined;
 }
 
+function parseMidRunCompactionEnv(
+  raw: string,
+): "resume" | "pause" | "off" | undefined {
+  const trimmed = raw.trim().toLowerCase();
+  return ["resume", "pause", "off"].includes(trimmed)
+    ? (trimmed as "resume" | "pause" | "off")
+    : undefined;
+}
+
 // ── ConfigManager instance ───────────────────────────────────────────────────
 
 export const config = new ConfigManager<UnifiedConfig>({
@@ -95,13 +104,13 @@ export const config = new ConfigManager<UnifiedConfig>({
       type: "enum",
       label: "Mid-run compaction",
       description:
-        "resume=compact at threshold during tool loops and continue (default), pause=compact and stop, off=only check when run ends",
+        "resume=compact transparently and continue the same run, pause=interrupt and stop, off=only check when run ends (default)",
       value: cfg.midRunCompaction,
       options: ["resume", "pause", "off"],
       optionLabels: {
-        resume: "resume — compact and continue (default)",
-        pause: "pause — compact and stop",
-        off: "off — only check when run ends",
+        resume: "resume — transparent compact, same run (experimental)",
+        pause: "pause — interrupt, compact, and stop",
+        off: "off — only check when run ends (default)",
       },
     },
     {
@@ -364,6 +373,18 @@ export const config = new ConfigManager<UnifiedConfig>({
       } else {
         console.warn(
           `blackhole: invalid PI_BLACKHOLE_COMPACTION_ENGINE value "${envCompactionEngine}"; ignoring`,
+        );
+      }
+    }
+
+    const envMidRunCompaction = process.env.PI_BLACKHOLE_MID_RUN_COMPACTION;
+    if (envMidRunCompaction !== undefined) {
+      const parsedEnv = parseMidRunCompactionEnv(envMidRunCompaction);
+      if (parsedEnv) {
+        parsed.midRunCompaction = parsedEnv;
+      } else {
+        console.warn(
+          `blackhole: invalid PI_BLACKHOLE_MID_RUN_COMPACTION value "${envMidRunCompaction}"; ignoring`,
         );
       }
     }

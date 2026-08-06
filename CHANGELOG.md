@@ -9,6 +9,16 @@
 ### Fixed
 
 - **Credential-resolved provider endpoints are preserved for observational-memory workers on Pi versions whose registry exposes `getProviderAuth()`.** Observer, reflector, and dropper now use the endpoint selected by Pi's auth resolver, preventing GitHub Copilot Business/Enterprise requests from falling back to the Individual endpoint and returning HTTP 421. On older registries without `getProviderAuth()`, the fix degrades silently to the previous behavior.
+- **`midRunCompaction: "resume"` no longer aborts or replaces the active run.** ([#50](https://github.com/k0valik/pi-blackhole/pull/50), thanks @daoguademeng) The old `ctx.compact()` + `blackhole-resume` path propagated a false interrupt to background/subagent extensions and let nested child runners resolve before Blackhole's detached resume run finished. Resume mode now performs Pi's native compaction pipeline inline from the awaited `turn_end` handler, refreshes the next low-level turn from the compacted messages, and continues inside the original `session.prompt()` promise. Completed tool calls remain paired; no synthetic user/custom message is injected. `"resume"` is an **experimental opt-in** — it monkey-patches Pi host internals and can silently deactivate on host drift.
+- **Mid-run compaction compatibility fails closed.** A reload-idempotent, weakly referenced runtime adapter recognizes the known Pi 0.81 and 0.84 `AgentSession.compact()` shapes. Unknown internal drift refuses transparent compaction and leaves the active run alive instead of falling back to the unsafe aborting path. External abort/cancellation still passes through normally.
+
+### Testing
+
+- Added adapter contract coverage for Pi 0.81/0.84 compact shapes, no-abort behavior, compacted next-turn context refresh, external cancellation, unpaired-tool rejection, fail-closed drift handling, and reload idempotency. A real `AgentSession` + faux-provider integration test runs on both the 0.81.1 compatibility baseline and 0.84.0 dev baseline, proving the active run signal stays live, the next provider request receives the compacted context, and the original `session.prompt()` remains pending through compaction. Trigger tests prove no `ctx.compact()` or `blackhole-resume` dispatch.
+
+### Dependencies
+
+- Bumped `@earendil-works/pi-*` devDependencies from `0.83.0` to `0.84.0`; the peer range remains `>=0.81.1 <1.0.0`, and the adapter retains a tested legacy-shape path for the minimum supported host.
 
 ## [0.4.3] - 2026-08-01
 
