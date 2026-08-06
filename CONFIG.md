@@ -388,6 +388,7 @@ Boolean parsing accepts `1`, `true`, `yes`, `on` (and `0`, `false`, `no`, `off`)
 |----------|-----------|---------|
 | `PI_BLACKHOLE_COMPACTION` | `compaction` (`auto` \| `manual` \| `off`) | `PI_BLACKHOLE_COMPACTION=manual` |
 | `PI_BLACKHOLE_COMPACTION_ENGINE` | `compactionEngine` (`blackhole` \| `pi-default`) | `PI_BLACKHOLE_COMPACTION_ENGINE=pi-default` |
+| `PI_BLACKHOLE_MID_RUN_COMPACTION` | `midRunCompaction` (`resume` \| `pause` \| `off`) | `PI_BLACKHOLE_MID_RUN_COMPACTION=resume` |
 
 ### Passive mode (legacy)
 

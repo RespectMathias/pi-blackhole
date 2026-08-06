@@ -543,6 +543,19 @@ export function loadUnifiedConfig(cwd: string, onWarn?: WarnFn): UnifiedConfig {
     }
   }
 
+  // ── Env override — mid-run compaction ──
+  const envMidRunCompaction = process.env.PI_BLACKHOLE_MID_RUN_COMPACTION;
+  if (envMidRunCompaction !== undefined) {
+    const trimmed = envMidRunCompaction.trim().toLowerCase();
+    if (isMidRunCompaction(trimmed)) {
+      merged.midRunCompaction = trimmed as "resume" | "pause" | "off";
+    } else {
+      console.warn(
+        `blackhole: invalid PI_BLACKHOLE_MID_RUN_COMPACTION value "${envMidRunCompaction}"; ignoring`,
+      );
+    }
+  }
+
   // ── Declarative PI_BLACKHOLE_* overrides ──
   // Same env map as the ConfigManager modal path, so env overrides apply
   // to the RUNTIME config, not just the modal. Overrides any file value.

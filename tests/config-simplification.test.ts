@@ -321,6 +321,15 @@ describe("Env overrides", () => {
     const config = loadUnifiedConfig(testDir);
     expect(config.compactionEngine).toBe("pi-default");
   });
+
+  it("PI_BLACKHOLE_MID_RUN_COMPACTION env var overrides midRunCompaction", async () => {
+    process.env.PI_BLACKHOLE_MID_RUN_COMPACTION = "resume";
+    const { loadUnifiedConfig } = await import("../src/core/unified-config.js");
+    writeConfig({ midRunCompaction: "off" });
+
+    const config = loadUnifiedConfig(testDir);
+    expect(config.midRunCompaction).toBe("resume");
+  });
 });
 
 // ── Tests: saveUnifiedConfig atomic write ─────────────────────────────────

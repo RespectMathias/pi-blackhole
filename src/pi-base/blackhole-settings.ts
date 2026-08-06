@@ -40,6 +40,15 @@ function parseCompactionEngineEnv(
     : undefined;
 }
 
+function parseMidRunCompactionEnv(
+  raw: string,
+): "resume" | "pause" | "off" | undefined {
+  const trimmed = raw.trim().toLowerCase();
+  return ["resume", "pause", "off"].includes(trimmed)
+    ? (trimmed as "resume" | "pause" | "off")
+    : undefined;
+}
+
 // ── ConfigManager instance ───────────────────────────────────────────────────
 
 export const config = new ConfigManager<UnifiedConfig>({
@@ -353,6 +362,18 @@ export const config = new ConfigManager<UnifiedConfig>({
       } else {
         console.warn(
           `blackhole: invalid PI_BLACKHOLE_COMPACTION_ENGINE value "${envCompactionEngine}"; ignoring`,
+        );
+      }
+    }
+
+    const envMidRunCompaction = process.env.PI_BLACKHOLE_MID_RUN_COMPACTION;
+    if (envMidRunCompaction !== undefined) {
+      const parsedEnv = parseMidRunCompactionEnv(envMidRunCompaction);
+      if (parsedEnv) {
+        parsed.midRunCompaction = parsedEnv;
+      } else {
+        console.warn(
+          `blackhole: invalid PI_BLACKHOLE_MID_RUN_COMPACTION value "${envMidRunCompaction}"; ignoring`,
         );
       }
     }
