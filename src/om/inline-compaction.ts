@@ -134,55 +134,126 @@ function getRegistry(): AdapterRegistry {
 
 function maskNonCodeText(source: string): string {
   const masked = source.split("");
-  let index = 0;
   const blank = (position: number) => {
     if (masked[position] !== "\n" && masked[position] !== "\r") {
       masked[position] = " ";
     }
   };
 
+  const maskQuoted = (start: number, delimiter: string): number => {
+    let index = start;
+    blank(index++);
+    while (index < source.length) {
+      const value = source[index];
+      blank(index++);
+      if (value === "\\" && index < source.length) {
+        blank(index++);
+        continue;
+      }
+      if (value === delimiter) break;
+    }
+    return index;
+  };
+
+  const maskLineComment = (start: number): number => {
+    let index = start;
+    blank(index++);
+    blank(index++);
+    while (index < source.length && source[index] !== "\n") blank(index++);
+    return index;
+  };
+
+  const maskBlockComment = (start: number): number => {
+    let index = start;
+    blank(index++);
+    blank(index++);
+    while (index < source.length) {
+      const value = source[index];
+      const next = source[index + 1];
+      blank(index++);
+      if (value === "*" && next === "/") {
+        blank(index++);
+        break;
+      }
+    }
+    return index;
+  };
+
+  function maskTemplateExpression(start: number): number {
+    let index = start;
+    let braceDepth = 1;
+    while (index < source.length && braceDepth > 0) {
+      const current = source[index];
+      const next = source[index + 1];
+      if (current === '"' || current === "'") {
+        index = maskQuoted(index, current);
+        continue;
+      }
+      if (current === "`") {
+        index = maskTemplate(index);
+        continue;
+      }
+      if (current === "/" && next === "/") {
+        index = maskLineComment(index);
+        continue;
+      }
+      if (current === "/" && next === "*") {
+        index = maskBlockComment(index);
+        continue;
+      }
+      if (current === "{") braceDepth += 1;
+      if (current === "}") braceDepth -= 1;
+      blank(index++);
+    }
+    return index;
+  }
+
+  function maskTemplate(start: number): number {
+    let index = start;
+    blank(index++);
+    while (index < source.length) {
+      const current = source[index];
+      const next = source[index + 1];
+      if (current === "\\") {
+        blank(index++);
+        if (index < source.length) blank(index++);
+        continue;
+      }
+      if (current === "`") {
+        blank(index++);
+        break;
+      }
+      if (current === "$" && next === "{") {
+        blank(index++);
+        blank(index++);
+        index = maskTemplateExpression(index);
+        continue;
+      }
+      blank(index++);
+    }
+    return index;
+  }
+
+  let index = 0;
   while (index < source.length) {
     const current = source[index];
     const next = source[index + 1];
-
-    if (current === '"' || current === "'" || current === "`") {
-      const delimiter = current;
-      blank(index++);
-      while (index < source.length) {
-        const value = source[index];
-        blank(index);
-        index += 1;
-        if (value === "\\" && index < source.length) {
-          blank(index++);
-          continue;
-        }
-        if (value === delimiter) break;
-      }
+    if (current === '"' || current === "'") {
+      index = maskQuoted(index, current);
       continue;
     }
-
+    if (current === "`") {
+      index = maskTemplate(index);
+      continue;
+    }
     if (current === "/" && next === "/") {
-      blank(index++);
-      blank(index++);
-      while (index < source.length && source[index] !== "\n") blank(index++);
+      index = maskLineComment(index);
       continue;
     }
-
     if (current === "/" && next === "*") {
-      blank(index++);
-      blank(index++);
-      while (index < source.length) {
-        const value = source[index];
-        const following = source[index + 1];
-        blank(index++);
-        if (value === "*" && following === "/") {
-          blank(index++);
-          break;
-        }
-      }
+      index = maskBlockComment(index);
       continue;
     }
-
     index += 1;
   }
 

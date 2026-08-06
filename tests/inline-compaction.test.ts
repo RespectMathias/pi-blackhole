@@ -329,6 +329,8 @@ describe("Blackhole inline compaction adapter", () => {
         const diagnostic =
           "this.abort() this._disconnectFromAgent() this._reconnectToAgent()";
         void diagnostic;
+        const nestedDiagnostic = `outer ${`this.abort()`} tail`;
+        void nestedDiagnostic;
         await this.abort();
         this.compactCalls += 1;
         this.customInstructions = customInstructions;
