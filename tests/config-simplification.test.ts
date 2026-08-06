@@ -80,6 +80,7 @@ describe("New config keys — defaults", () => {
     expect(config.compaction).toBe("auto");
     expect(config.compactionEngine).toBe("blackhole");
     expect(config.tailBehavior).toBe("minimal");
+    expect(config.midRunCompaction).toBe("resume");
   });
 
   it("T1b: existing old DEFAULTS are preserved", async () => {

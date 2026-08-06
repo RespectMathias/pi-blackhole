@@ -17,8 +17,13 @@ import { registerCompactionTrigger } from "./src/om/compaction-trigger.js";
 import { registerRecallTool } from "./src/tools/recall";
 import { Runtime } from "./src/om/runtime.js";
 import { captureRegisteredProviderStreams } from "./src/om/provider-stream.js";
+import { installHostInlineCompactionAdapter } from "./src/om/inline-compaction.js";
 
-export default (pi: ExtensionAPI) => {
+export default async (pi: ExtensionAPI) => {
+  // Resolve the host's AgentSession identity before this factory returns. Local
+  // package development can otherwise patch a duplicate devDependency module.
+  // The adapter is reload-idempotent and fails closed on unknown Pi internals.
+  await installHostInlineCompactionAdapter();
   // ── Bridge: capture custom provider stream functions for jiti-loaded agents ──
   // pi-blackhole's consolidation agents are loaded via jiti with moduleCache: false,
   // which creates a separate pi-ai instance whose apiProviderRegistry lacks custom
@@ -43,7 +48,7 @@ export default (pi: ExtensionAPI) => {
 
   // Observational memory: background consolidation pipeline
   registerConsolidationTrigger(pi, omRuntime); // agent_start + turn_end → observer/reflector/dropper
-  registerCompactionTrigger(pi, omRuntime); // agent_end → auto-compaction
+  registerCompactionTrigger(pi, omRuntime); // turn_end + agent_end → auto-compaction
 
   // Pi-vcc: compaction + om injection
   registerBeforeCompactHook(pi, omRuntime); // session_before_compact → pi-vcc + om content

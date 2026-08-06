@@ -1,0 +1,525 @@
+import {
+  AgentSession,
+  type CompactionResult,
+} from "@earendil-works/pi-coding-agent";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, parse } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const REGISTRY_KEY = Symbol.for("pi-blackhole:inline-compaction-adapter:v1");
+
+interface TurnContextLike {
+  messages: unknown[];
+  [key: string]: unknown;
+}
+
+interface TurnLike {
+  context: TurnContextLike;
+}
+
+interface NextTurnSnapshotLike {
+  context?: TurnContextLike;
+  [key: string]: unknown;
+}
+
+type PrepareNextTurn = (
+  turn: TurnLike,
+  signal: AbortSignal,
+) => Promise<NextTurnSnapshotLike | undefined>;
+
+interface AgentLike {
+  state: { messages: unknown[] };
+  prepareNextTurnWithContext?: PrepareNextTurn;
+}
+
+interface SessionManagerLike {
+  buildSessionContext(): { messages: unknown[] };
+}
+
+interface PatchableSession {
+  agent: AgentLike;
+  sessionManager: SessionManagerLike;
+  abort(): Promise<void>;
+  compact(customInstructions?: string): Promise<CompactionResult>;
+  _bindExtensionCore(runner: unknown): unknown;
+  _disconnectFromAgent?(): void;
+  _reconnectToAgent?(): void;
+  _compactionAbortController?: AbortController;
+  _autoCompactionAbortController?: AbortController;
+}
+
+type PatchableSessionPrototype = Pick<
+  PatchableSession,
+  "abort" | "compact" | "_bindExtensionCore"
+> &
+  Partial<Pick<PatchableSession, "_disconnectFromAgent" | "_reconnectToAgent">>;
+
+interface PatchableSessionClass {
+  prototype: PatchableSessionPrototype;
+}
+
+interface CompactShape {
+  disconnectsAgent: boolean;
+}
+
+interface InstalledAdapter {
+  status: InlineCompactionAdapterStatus;
+  originalCompact?: PatchableSession["compact"];
+  shape?: CompactShape;
+}
+
+interface SessionRecord {
+  session: PatchableSession;
+  originalCompact: PatchableSession["compact"];
+  shape: CompactShape;
+}
+
+interface AdapterRegistry {
+  installs: WeakMap<object, InstalledAdapter>;
+  sessions: WeakMap<object, SessionRecord>;
+  refreshInstalled: WeakSet<object>;
+  refreshPending: WeakSet<object>;
+  compactionInFlight: WeakSet<object>;
+  hostCandidateCount?: number;
+  capturedSessionCount?: number;
+}
+
+export interface InlineCompactionAdapterStatus {
+  supported: boolean;
+  reason?: string;
+}
+
+export interface InlineCompactionInstallOptions {
+  sessionClass?: PatchableSessionClass;
+}
+
+export interface HostInlineCompactionInstallOptions {
+  entrypoint?: string;
+  stack?: string;
+}
+
+export type InlineCompaction = (
+  sessionManager: object,
+  customInstructions?: string,
+) => Promise<CompactionResult>;
+
+export class InlineCompactionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InlineCompactionUnavailableError";
+  }
+}
+
+function getRegistry(): AdapterRegistry {
+  const host = globalThis as typeof globalThis & { [key: symbol]: unknown };
+  const existing = host[REGISTRY_KEY] as AdapterRegistry | undefined;
+  if (existing) {
+    existing.hostCandidateCount ??= 0;
+    existing.capturedSessionCount ??= 0;
+    return existing;
+  }
+
+  const registry: AdapterRegistry = {
+    installs: new WeakMap(),
+    sessions: new WeakMap(),
+    refreshInstalled: new WeakSet(),
+    refreshPending: new WeakSet(),
+    compactionInFlight: new WeakSet(),
+    hostCandidateCount: 0,
+    capturedSessionCount: 0,
+  };
+  host[REGISTRY_KEY] = registry;
+  return registry;
+}
+
+function countMethodCalls(source: string, method: string): number {
+  const pattern = new RegExp(`this\\.${method}\\s*\\(\\s*\\)`, "g");
+  return source.match(pattern)?.length ?? 0;
+}
+
+function detectCompactShape(
+  prototype: PatchableSessionPrototype,
+): CompactShape | string {
+  if (typeof prototype.compact !== "function") {
+    return "AgentSession.compact() is missing";
+  }
+  if (typeof prototype.abort !== "function") {
+    return "AgentSession.abort() is missing";
+  }
+  if (typeof prototype._bindExtensionCore !== "function") {
+    return "AgentSession._bindExtensionCore() is missing";
+  }
+
+  const source = Function.prototype.toString.call(prototype.compact);
+  const abortCalls = countMethodCalls(source, "abort");
+  if (
+    abortCalls !== 1 ||
+    !source.includes("appendCompaction") ||
+    !source.includes("agent.state.messages")
+  ) {
+    return "unsupported AgentSession.compact() shape";
+  }
+
+  const disconnectCalls = countMethodCalls(source, "_disconnectFromAgent");
+  const reconnectCalls = countMethodCalls(source, "_reconnectToAgent");
+  if (disconnectCalls === 0 && reconnectCalls === 0) {
+    return { disconnectsAgent: false };
+  }
+  if (
+    disconnectCalls === 1 &&
+    reconnectCalls === 1 &&
+    typeof prototype._disconnectFromAgent === "function" &&
+    typeof prototype._reconnectToAgent === "function"
+  ) {
+    return { disconnectsAgent: true };
+  }
+  return "unsupported AgentSession disconnect/reconnect shape";
+}
+
+function shadowProperty(
+  target: object,
+  key: string,
+  value: unknown,
+): () => void {
+  const record = target as Record<string, unknown>;
+  const ownDescriptor = Object.getOwnPropertyDescriptor(target, key);
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: ownDescriptor?.enumerable ?? false,
+    writable: true,
+    value,
+  });
+
+  return () => {
+    if (ownDescriptor) {
+      Object.defineProperty(target, key, ownDescriptor);
+    } else {
+      delete record[key];
+    }
+  };
+}
+
+function installNextTurnRefresh(
+  session: PatchableSession,
+  registry: AdapterRegistry,
+): void {
+  const agent = session.agent;
+  if (registry.refreshInstalled.has(agent)) return;
+
+  const previous = agent.prepareNextTurnWithContext;
+  agent.prepareNextTurnWithContext = async (turn, signal) => {
+    const snapshot = await previous?.call(agent, turn, signal);
+    if (!registry.refreshPending.has(session)) return snapshot;
+
+    registry.refreshPending.delete(session);
+    const context = snapshot?.context ?? turn.context;
+    return {
+      ...snapshot,
+      context: {
+        ...context,
+        messages: session.agent.state.messages.slice(),
+      },
+    };
+  };
+  registry.refreshInstalled.add(agent);
+}
+
+function registerSession(
+  session: PatchableSession,
+  installed: InstalledAdapter,
+  registry: AdapterRegistry,
+): void {
+  if (!installed.originalCompact || !installed.shape) return;
+  if (
+    !session.sessionManager ||
+    typeof session.sessionManager !== "object" ||
+    typeof session.sessionManager.buildSessionContext !== "function"
+  ) {
+    return;
+  }
+
+  if (!registry.sessions.has(session.sessionManager)) {
+    registry.capturedSessionCount = (registry.capturedSessionCount ?? 0) + 1;
+  }
+  registry.sessions.set(session.sessionManager, {
+    session,
+    originalCompact: installed.originalCompact,
+    shape: installed.shape,
+  });
+  installNextTurnRefresh(session, registry);
+}
+
+function findPiPackageRoot(startPath: string): string | undefined {
+  let current: string;
+  try {
+    current = dirname(realpathSync(startPath));
+  } catch {
+    return undefined;
+  }
+
+  const filesystemRoot = parse(current).root;
+  while (current !== filesystemRoot) {
+    const packagePath = join(current, "package.json");
+    if (existsSync(packagePath)) {
+      try {
+        const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
+          name?: string;
+        };
+        if (manifest.name === "@earendil-works/pi-coding-agent") return current;
+      } catch {
+        // Keep walking: an unrelated malformed package must not select a host.
+      }
+    }
+    current = dirname(current);
+  }
+  return undefined;
+}
+
+function hostFramePaths(stack: string): string[] {
+  const paths: string[] = [];
+  for (const line of stack.split("\n")) {
+    const match =
+      line.match(/\((file:\/\/.*|\/.*):\d+:\d+\)$/) ??
+      line.match(/at (file:\/\/.*|\/.*):\d+:\d+$/);
+    if (!match?.[1]) continue;
+    const rawPath = match[1];
+    if (!rawPath.includes("@earendil-works/pi-coding-agent")) continue;
+    try {
+      paths.push(
+        rawPath.startsWith("file://") ? fileURLToPath(rawPath) : rawPath,
+      );
+    } catch {
+      // Ignore malformed stack locations and continue to the CLI entrypoint.
+    }
+  }
+  return paths;
+}
+
+export async function installHostInlineCompactionAdapter(
+  options: HostInlineCompactionInstallOptions = {},
+): Promise<InlineCompactionAdapterStatus> {
+  const packageRoots = new Set<string>();
+  const stack = options.stack ?? new Error().stack ?? "";
+  for (const framePath of hostFramePaths(stack)) {
+    const root = findPiPackageRoot(framePath);
+    if (root) packageRoots.add(root);
+  }
+
+  const entrypoint = options.entrypoint ?? process.argv[1];
+  if (entrypoint) {
+    const root = findPiPackageRoot(entrypoint);
+    if (root) packageRoots.add(root);
+  }
+  getRegistry().hostCandidateCount = packageRoots.size;
+
+  let supportedStatus: InlineCompactionAdapterStatus | undefined;
+  const failureReasons: string[] = [];
+  for (const packageRoot of packageRoots) {
+    try {
+      const hostModule = (await import(
+        pathToFileURL(join(packageRoot, "dist", "index.js")).href
+      )) as { AgentSession?: PatchableSessionClass };
+      if (!hostModule.AgentSession) {
+        failureReasons.push(`${packageRoot}: AgentSession export missing`);
+        continue;
+      }
+
+      const status = installInlineCompactionAdapter({
+        sessionClass: hostModule.AgentSession,
+      });
+      if (status.supported) supportedStatus ??= status;
+      else
+        failureReasons.push(
+          `${packageRoot}: ${status.reason ?? "unsupported"}`,
+        );
+    } catch (error) {
+      failureReasons.push(
+        `${packageRoot}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  if (supportedStatus) return supportedStatus;
+  const details =
+    failureReasons.length > 0 ? ` (${failureReasons.join("; ")})` : "";
+  return {
+    supported: false,
+    reason:
+      "Blackhole inline compaction is unavailable: host AgentSession module could not be resolved" +
+      details,
+  };
+}
+
+export function installInlineCompactionAdapter(
+  options: InlineCompactionInstallOptions = {},
+): InlineCompactionAdapterStatus {
+  const sessionClass =
+    options.sessionClass ?? (AgentSession as unknown as PatchableSessionClass);
+  const prototype = sessionClass.prototype;
+  const registry = getRegistry();
+  const existing = registry.installs.get(prototype);
+  if (existing) return existing.status;
+
+  const shape = detectCompactShape(prototype);
+  if (typeof shape === "string") {
+    const status = { supported: false, reason: shape };
+    registry.installs.set(prototype, { status });
+    return status;
+  }
+
+  const originalCompact = prototype.compact;
+  const originalBindExtensionCore = prototype._bindExtensionCore;
+  const installed: InstalledAdapter = {
+    status: { supported: true },
+    originalCompact,
+    shape,
+  };
+
+  prototype._bindExtensionCore = function patchedBindExtensionCore(
+    this: PatchableSession,
+    runner: unknown,
+  ): unknown {
+    registerSession(this, installed, registry);
+    return originalBindExtensionCore.call(this, runner);
+  };
+
+  registry.installs.set(prototype, installed);
+  return installed.status;
+}
+
+function getToolCallId(block: unknown): string | undefined {
+  if (!block || typeof block !== "object") return undefined;
+  const value = block as { type?: unknown; id?: unknown };
+  return value.type === "toolCall" && typeof value.id === "string"
+    ? value.id
+    : undefined;
+}
+
+function hasUnpairedToolCall(messages: unknown[]): boolean {
+  const pending = new Set<string>();
+
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    const value = message as {
+      role?: unknown;
+      content?: unknown;
+      toolCallId?: unknown;
+    };
+
+    if (value.role === "assistant" && Array.isArray(value.content)) {
+      for (const block of value.content) {
+        const id = getToolCallId(block);
+        if (id) pending.add(id);
+      }
+      continue;
+    }
+
+    if (value.role === "toolResult" && typeof value.toolCallId === "string") {
+      pending.delete(value.toolCallId);
+    }
+  }
+
+  return pending.size > 0;
+}
+
+/**
+ * Run Pi's native compaction pipeline at an awaited turn_end boundary without
+ * aborting the active agent run. This is intentionally private to Blackhole:
+ * callers must ensure all tools for the turn have completed.
+ */
+export async function compactInlineAtTurnBoundary(
+  sessionManager: object,
+  customInstructions?: string,
+): Promise<CompactionResult> {
+  const registry = getRegistry();
+  const record = registry.sessions.get(sessionManager);
+  if (!record) {
+    throw new InlineCompactionUnavailableError(
+      "Blackhole inline compaction is unavailable: owning AgentSession was not captured or Pi internals are unsupported" +
+        ` (host candidates: ${registry.hostCandidateCount ?? 0}; captured sessions: ${registry.capturedSessionCount ?? 0})`,
+    );
+  }
+
+  const { session, originalCompact, shape } = record;
+  if (
+    registry.compactionInFlight.has(session) ||
+    session._compactionAbortController ||
+    session._autoCompactionAbortController
+  ) {
+    throw new Error("Compaction already in progress");
+  }
+
+  const activeMessages = session.sessionManager.buildSessionContext().messages;
+  if (hasUnpairedToolCall(activeMessages)) {
+    throw new Error(
+      "Cannot compact inline while a tool call is still in flight",
+    );
+  }
+
+  registry.compactionInFlight.add(session);
+  const restores: Array<() => void> = [];
+  const realAbort = session.abort;
+  let abortSuppressed = false;
+  let disconnectSuppressed = false;
+  const messagesBefore = session.agent.state.messages;
+
+  try {
+    if (shape.disconnectsAgent) {
+      const realDisconnect = session._disconnectFromAgent;
+      if (!realDisconnect) {
+        throw new InlineCompactionUnavailableError(
+          "Blackhole inline compaction is unavailable: disconnect hook disappeared",
+        );
+      }
+      restores.push(
+        shadowProperty(
+          session,
+          "_disconnectFromAgent",
+          function inlineDisconnect(this: PatchableSession): void {
+            if (!disconnectSuppressed) {
+              disconnectSuppressed = true;
+              return;
+            }
+            realDisconnect.call(this);
+          },
+        ),
+      );
+    }
+
+    restores.push(
+      shadowProperty(
+        session,
+        "abort",
+        async function inlineAbort(this: PatchableSession): Promise<void> {
+          if (!abortSuppressed) {
+            abortSuppressed = true;
+            return;
+          }
+          this._compactionAbortController?.abort();
+          await realAbort.call(this);
+        },
+      ),
+    );
+
+    const result = await originalCompact.call(session, customInstructions);
+    // Mark the refresh before validating the quiesce invariant. If a future Pi
+    // shape mutates state but does not invoke the expected hook, the error stays
+    // explicit while the still-active loop is prevented from using stale context.
+    registry.refreshPending.add(session);
+    if (!abortSuppressed || (shape.disconnectsAgent && !disconnectSuppressed)) {
+      throw new InlineCompactionUnavailableError(
+        "Blackhole inline compaction invariant failed: Pi quiesce hooks were not invoked as expected",
+      );
+    }
+
+    return result;
+  } catch (error) {
+    if (session.agent.state.messages !== messagesBefore) {
+      registry.refreshPending.add(session);
+    }
+    throw error;
+  } finally {
+    registry.compactionInFlight.delete(session);
+    for (const restore of restores.reverse()) restore();
+  }
+}

@@ -54,10 +54,12 @@ function captureHandler(
     /** NEW: Mid-run (turn_end) compaction behavior */
     midRunCompaction?: "resume" | "pause" | "off";
   } = {},
+  inlineCompact = vi.fn(async () => ({ summary: "inline summary" })),
 ) {
   let agentEndHandler: ((event: unknown, ctx: unknown) => void) | undefined;
   let agentStartHandler: (() => void) | undefined;
-  let turnEndHandler: ((event: unknown, ctx: unknown) => void) | undefined;
+  let turnEndHandler:
+    ((event: unknown, ctx: unknown) => void | Promise<void>) | undefined;
   const pi = {
     on: vi.fn((name: string, cb: any) => {
       if (name === "agent_end") agentEndHandler = cb;
@@ -93,8 +95,9 @@ function captureHandler(
     },
     compactInFlight: args.compactInFlight ?? false,
     autoCompactionController: null as AbortController | null,
+    midRunCompactionSuspended: false,
   };
-  registerCompactionTrigger(pi as any, runtime as any);
+  registerCompactionTrigger(pi as any, runtime as any, inlineCompact);
   if (!agentEndHandler) throw new Error("agent_end handler was not registered");
   if (!agentStartHandler)
     throw new Error("agent_start handler was not registered");
@@ -105,6 +108,7 @@ function captureHandler(
     turnHandler: turnEndHandler,
     runtime,
     pi,
+    inlineCompact,
   };
 }
 
@@ -535,38 +539,69 @@ describe("mid-run compaction trigger (turn_end)", () => {
     expect(ctx.compact).not.toHaveBeenCalled();
   });
 
-  it("M2: compacts immediately at threshold — no idle wait, agent is mid-run by definition", () => {
-    const { turnHandler, runtime } = captureHandler({
+  it("M2: awaits transparent compaction immediately at the threshold", async () => {
+    const { turnHandler, runtime, inlineCompact } = captureHandler({
       compactAfterTokens: 3,
       midRunCompaction: "resume",
     });
     const ctx = fakeCtx([dueBranch]);
 
-    turnHandler(turnEnd(), ctx);
+    const pending = turnHandler(turnEnd(), ctx);
 
-    // Synchronous: no flushAll/timer advance — ctx.compact must already be called.
     expect(runtime.compactInFlight).toBe(true);
-    expect(ctx.compact).toHaveBeenCalledTimes(1);
+    expect(inlineCompact).toHaveBeenCalledOnce();
+    expect(inlineCompact).toHaveBeenCalledWith(ctx.sessionManager);
+    expect(ctx.compact).not.toHaveBeenCalled();
     expect(ctx.isIdle).not.toHaveBeenCalled();
+
+    await pending;
+    expect(runtime.compactInFlight).toBe(false);
   });
 
-  it("M3: resume mode — onComplete injects a resume message with triggerTurn", () => {
+  it("M3: resume mode continues the same run without a synthetic message", async () => {
     const { turnHandler, runtime, pi } = captureHandler({
       compactAfterTokens: 3,
       midRunCompaction: "resume",
     });
     const ctx = fakeCtx([dueBranch]);
-    turnHandler(turnEnd(), ctx);
-    const options = ctx.compact.mock.calls[0][0];
-    options.onComplete({});
+
+    await turnHandler(turnEnd(), ctx);
 
     expect(runtime.compactInFlight).toBe(false);
-    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-    const [message, sendOptions] = pi.sendMessage.mock.calls[0];
-    expect(message.customType).toBe("blackhole-resume");
-    expect(typeof message.content).toBe("string");
-    expect(message.content.length).toBeGreaterThan(0);
-    expect(sendOptions).toMatchObject({ triggerTurn: true });
+    expect(ctx.compact).not.toHaveBeenCalled();
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("M3a: keeps the outer run pending until inline compaction finishes", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inlineCompact = vi.fn(async () => {
+      await gate;
+      return { summary: "inline summary" };
+    });
+    const { turnHandler } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
+    const ctx = fakeCtx([dueBranch]);
+    let continued = false;
+
+    const outerRun = (async () => {
+      await turnHandler(turnEnd(), ctx);
+      continued = true;
+      return "continued";
+    })();
+    await Promise.resolve();
+
+    expect(continued).toBe(false);
+    release?.();
+    await expect(outerRun).resolves.toBe("continued");
+    expect(continued).toBe(true);
   });
 
   it("M4: pause mode compacts but does not inject a resume message", () => {
@@ -601,22 +636,25 @@ describe("mid-run compaction trigger (turn_end)", () => {
     expect(ctx.compact).toHaveBeenCalledTimes(1);
   });
 
-  it("M6: onError clears compactInFlight, suspends further attempts, and still resumes (resume mode)", () => {
-    const { turnHandler, runtime, pi } = captureHandler({
-      compactAfterTokens: 3,
-      midRunCompaction: "resume",
+  it("M6: inline failure clears in-flight state and suspends retries without aborting", async () => {
+    const inlineCompact = vi.fn(async () => {
+      throw new Error("boom");
     });
+    const { turnHandler, runtime, pi } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
     const ctx = fakeCtx([dueBranch]);
 
-    turnHandler(turnEnd(), ctx);
-    const options = ctx.compact.mock.calls[0][0];
-    options.onError({ message: "boom" });
+    await turnHandler(turnEnd(), ctx);
 
     expect(runtime.compactInFlight).toBe(false);
     expect(runtime.midRunCompactionSuspended).toBe(true);
-    // The run was already aborted by ctx.compact() — resume mode must still
-    // send the resume message or the agent stalls mid-task.
-    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(ctx.compact).not.toHaveBeenCalled();
+    expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 
   it("M7: skips when compaction is already in flight", () => {
@@ -629,6 +667,22 @@ describe("mid-run compaction trigger (turn_end)", () => {
     turnHandler(turnEnd(), ctx);
 
     expect(ctx.sessionManager.getBranch).not.toHaveBeenCalled();
+    expect(ctx.compact).not.toHaveBeenCalled();
+  });
+
+  it("M7a: skips inline compaction when another operation already aborted the run", async () => {
+    const { turnHandler, inlineCompact } = captureHandler({
+      compactAfterTokens: 3,
+      midRunCompaction: "resume",
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = fakeCtx([dueBranch], { signal: controller.signal });
+
+    await turnHandler(turnEnd(), ctx);
+
+    expect(ctx.sessionManager.getBranch).not.toHaveBeenCalled();
+    expect(inlineCompact).not.toHaveBeenCalled();
     expect(ctx.compact).not.toHaveBeenCalled();
   });
 
@@ -737,44 +791,74 @@ describe("mid-run compaction trigger (turn_end)", () => {
 });
 
 describe("mid-run compaction cancellation resilience", () => {
-  it("M15: cancelled compaction still resumes the agent and suspends further mid-run attempts", () => {
-    const { turnHandler, runtime, pi } = captureHandler({
-      compactAfterTokens: 3,
-      midRunCompaction: "resume",
+  it("M15: cancelled inline compaction suspends retries without injecting continuation", async () => {
+    const inlineCompact = vi.fn(async () => {
+      throw new Error("Compaction cancelled");
     });
+    const { turnHandler, runtime, pi } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
     const ctx = fakeCtx([dueBranch, dueBranch]);
-    turnHandler(turnEnd(), ctx);
-    const options = ctx.compact.mock.calls[0][0];
-    // The before-compact hook cancelled (e.g. too few live messages).
-    // The run was already aborted by ctx.compact() — without a resume
-    // message the agent would stall mid-task.
-    options.onError({ message: "Compaction cancelled" });
+
+    await turnHandler(turnEnd(), ctx);
 
     expect(runtime.compactInFlight).toBe(false);
-    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(runtime.midRunCompactionSuspended).toBe(true);
+    expect(pi.sendMessage).not.toHaveBeenCalled();
 
-    // Next turn_end must NOT re-trigger (tokens unchanged, compaction would
-    // cancel again — abort/cancel thrash loop).
-    turnHandler(turnEnd(), ctx);
-    expect(ctx.compact).toHaveBeenCalledTimes(1);
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(1);
   });
 
-  it("M16: suspension clears once pressure drops below threshold (successful compaction elsewhere)", () => {
-    const { turnHandler } = captureHandler({
-      compactAfterTokens: 3,
-      midRunCompaction: "resume",
+  it("M15a: agent_end does not immediately retry a failed mid-run compaction", async () => {
+    const inlineCompact = vi.fn(async () => {
+      throw new Error("Compaction cancelled");
     });
-    // Sequence: due (trigger+cancel) → due (suspended) → below (clears) → due (triggers again)
+    const { turnHandler, handler, runtime } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
+    const ctx = fakeCtx([dueBranch, dueBranch]);
+
+    await turnHandler(turnEnd(), ctx);
+    expect(runtime.midRunCompactionSuspended).toBe(true);
+
+    handler(agentEnd(), ctx);
+
+    expect(inlineCompact).toHaveBeenCalledTimes(1);
+    expect(ctx.compact).not.toHaveBeenCalled();
+    expect(runtime.compactInFlight).toBe(false);
+  });
+
+  it("M16: suspension clears once pressure drops below threshold", async () => {
+    const inlineCompact = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Compaction cancelled"))
+      .mockResolvedValue({ summary: "inline summary" });
+    const { turnHandler } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
+    // Sequence: due (cancel) → due (suspended) → below (clear) → due (trigger again)
     const ctx = fakeCtx([dueBranch, dueBranch, belowBranch, dueBranch]);
 
-    turnHandler(turnEnd(), ctx);
-    ctx.compact.mock.calls[0][0].onError({ message: "Compaction cancelled" });
-    turnHandler(turnEnd(), ctx); // suspended — no new compact
-    expect(ctx.compact).toHaveBeenCalledTimes(1);
+    await turnHandler(turnEnd(), ctx);
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(1);
 
-    turnHandler(turnEnd(), ctx); // below threshold — clears suspension
-    turnHandler(turnEnd(), ctx); // due again — triggers
-    expect(ctx.compact).toHaveBeenCalledTimes(2);
+    await turnHandler(turnEnd(), ctx);
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(2);
   });
 
   it("M17: pause mode does not resume on cancellation", () => {
