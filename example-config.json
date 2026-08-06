@@ -9,6 +9,9 @@
   "tailBehavior": "minimal",
   "midRunCompaction": "resume",
 
+  "skipForProviders": [],
+  "_comment_skipForProviders": "EXPERIMENTAL compatibility shim (pi-codex-compaction coexistence): providers for which blackhole steps aside entirely — no compaction, no observational-memory consolidation. Entries: bare provider or 'provider:api'. Env override PI_BLACKHOLE_SKIP_PROVIDERS (comma-separated). Default [] = disabled. Deliberately unsurfaced in README/CONFIG.md; do not rely on it.",
+
   "model": {
     "_comment": "Base model (last fallback before session model).",
     "provider": "openrouter",

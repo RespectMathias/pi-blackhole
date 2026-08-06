@@ -1,15 +1,29 @@
 /**
- * Provider-aware engine coordination.
+ * EXPERIMENTAL COMPATIBILITY SHIM — pi-codex-compaction coexistence.
  *
- * Extensions like pi-codex-compaction own compaction for specific providers
- * (OpenAI Codex native remote compaction, preserving opaque checkpoints).
- * When the active model's provider is listed in `skipForProviders`, blackhole
- * steps aside entirely — no compaction, no observational-memory
- * consolidation — so exactly one compaction engine acts per turn, regardless
- * of extension registration order.
+ * Not part of blackhole's supported config surface. The mechanism exists so a
+ * user running pi-codex-compaction (OpenAI Codex native remote compaction,
+ * preserving opaque checkpoints) can list a provider in `skipForProviders` and
+ * have blackhole step aside entirely for it — no compaction, no
+ * observational-memory consolidation — so exactly one compaction engine acts
+ * per turn, regardless of extension registration order.
+ *
+ * Maintenance policy:
+ * - Do not extend, polish, or document this surface without a SECOND consumer.
+ *   The only known user is the pi-codex-compaction / beautiful-pi combo.
+ * - Correctness rests on an EXTERNAL, locally unverifiable assumption: that
+ *   pi-codex-compaction's `session_before_compact` handler returns a
+ *   `{ compaction }` result for supported Codex models and `undefined`
+ *   otherwise. If that package changes, this shim silently no-ops (safe, but
+ *   coordination is lost).
+ * - `skipForProviders` intentionally couples two behaviors (no compaction AND
+ *   no OM consolidation). A future compactor may need only one — split the key
+ *   then; do not pre-split now.
+ * - Deliberately absent from README/CONFIG.md/settings/env-var docs; surfaced
+ *   only in example-config.json and the CHANGELOG entry for this PR.
  */
 
-type ProviderModel = { provider: string; api?: unknown };
+type ProviderModel = { provider: string; api?: string };
 
 function isProviderModel(model: unknown): model is ProviderModel {
   if (model === null || typeof model !== "object" || !("provider" in model)) {

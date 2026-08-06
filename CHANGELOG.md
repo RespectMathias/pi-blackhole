@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Experimental compatibility shim for pi-codex-compaction coexistence.** ([#47](https://github.com/k0valik/pi-blackhole/pull/47), thanks @danielmrdev) Optional `skipForProviders` (config key or `PI_BLACKHOLE_SKIP_PROVIDERS` env override) makes blackhole step aside entirely — no compaction, no observational-memory consolidation — for listed providers, giving exactly-one-engine semantics when pi-codex-compaction also registers a `session_before_compact` handler. **Niche surface by design**: unsurfaced in README/CONFIG.md until a second consumer exists (see shim notes in `src/core/provider-skip.ts`); surfaced only in example-config.json.
+
 ## [0.4.3] - 2026-08-01
 
 ### Added

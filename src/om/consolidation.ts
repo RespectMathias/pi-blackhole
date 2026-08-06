@@ -520,6 +520,7 @@ function maybeLaunchConsolidation(
   // Provider-aware skip: another engine owns this provider (e.g. Codex native
   // compaction); blackhole also steps aside from observational-memory
   // consolidation so it never touches opaque checkpoints.
+  // EXPERIMENTAL compat shim — do not extend; see src/core/provider-skip.ts.
   if (matchesSkippedProvider(runtime.config, ctx.model)) return;
 
   // LEGACY: passive check — only applies when new keys are absent (unmigrated config)

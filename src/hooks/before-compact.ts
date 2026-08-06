@@ -312,6 +312,7 @@ export const registerBeforeCompactHook = (
     // (e.g. pi-codex-compaction for OpenAI Codex). Step aside entirely so
     // exactly one compaction engine acts per turn, regardless of extension
     // registration order. Applies to auto and explicit (/blackhole) paths.
+    // EXPERIMENTAL compat shim — do not extend; see src/core/provider-skip.ts.
     if (matchesSkippedProvider(omRuntime.config, ctx.model)) {
       trace("before_compact.provider_skipped", {
         provider: getModelProvider(ctx.model),
