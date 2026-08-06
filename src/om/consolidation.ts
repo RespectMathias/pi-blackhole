@@ -8,6 +8,7 @@
  * - 30s retry gate prevents repeated failed runs (isConsolidationRetryGated).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesSkippedProvider } from "../core/provider-skip.js";
 import { runDropper } from "./agents/dropper/agent.js";
 import { runObserver } from "./agents/observer/agent.js";
 import { runReflector } from "./agents/reflector/agent.js";
@@ -515,6 +516,12 @@ function maybeLaunchConsolidation(
 ): void {
   runtime.ensureConfig(ctx.cwd, (msg) => ctx.ui?.notify?.(msg, "warning"));
   if (runtime.config.memory === false) return;
+
+  // Provider-aware skip: another engine owns this provider (e.g. Codex native
+  // compaction); blackhole also steps aside from observational-memory
+  // consolidation so it never touches opaque checkpoints.
+  // EXPERIMENTAL compat shim — do not extend; see src/core/provider-skip.ts.
+  if (matchesSkippedProvider(runtime.config, ctx.model)) return;
 
   // LEGACY: passive check — only applies when new keys are absent (unmigrated config)
   if (

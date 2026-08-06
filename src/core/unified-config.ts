@@ -82,6 +82,14 @@ export interface UnifiedConfig {
    *  "pi-default" — Pi's built-in summarization */
   compactionEngine: "blackhole" | "pi-default";
 
+  /**
+   * Providers for which blackhole steps aside entirely (no compaction, no
+   * observational-memory consolidation) — used for multi-engine coordination
+   * (e.g. OpenAI Codex sessions must use native Codex remote compaction).
+   * Entries are provider ids, optionally "provider:api" for precision.
+   */
+  skipForProviders: string[];
+
   /** Mid-run auto-compaction (turn_end trigger, fires while the agent is still
    *  executing tool loops — agent_end alone never fires during long runs).
    *  "resume" — compact at threshold and inject a resume message so the agent
@@ -182,6 +190,7 @@ export const DEFAULTS: UnifiedConfig = {
   // New config surface
   compaction: "auto",
   compactionEngine: "blackhole",
+  skipForProviders: [],
   tailBehavior: "minimal",
   midRunCompaction: "off",
 
@@ -298,6 +307,15 @@ function parseConfig(raw: Record<string, unknown>): Partial<UnifiedConfig> {
   if (isTailBehavior(raw.tailBehavior)) c.tailBehavior = raw.tailBehavior;
   if (isMidRunCompaction(raw.midRunCompaction))
     c.midRunCompaction = raw.midRunCompaction;
+
+  // Provider-aware skip list (entries: provider or "provider:api")
+  if (Array.isArray(raw.skipForProviders)) {
+    const list = raw.skipForProviders
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    if (list.length > 0) c.skipForProviders = list;
+  }
 
   // Booleans — pi-vcc
   if (typeof raw.overrideDefaultCompaction === "boolean")
