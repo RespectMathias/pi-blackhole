@@ -7,7 +7,7 @@
   "compaction": "auto",
   "compactionEngine": "blackhole",
   "tailBehavior": "minimal",
-  "midRunCompaction": "resume",
+  "midRunCompaction": "off",
 
   "model": {
     "_comment": "Base model (last fallback before session model).",

@@ -84,9 +84,9 @@ export interface UnifiedConfig {
 
   /** Mid-run auto-compaction (turn_end trigger, fires while the agent is still
    *  executing tool loops — agent_end alone never fires during long runs).
-   *  "resume" — compact transparently at the turn boundary; the same run continues (default)
+   *  "resume" — compact transparently at the turn boundary; the same run continues (opt-in)
    *  "pause"  — use Pi's interrupting compaction; user continues manually
-   *  "off"    — only evaluate the threshold when the agent finishes a run */
+   *  "off"    — only evaluate the threshold when the agent finishes a run (default) */
   midRunCompaction: "resume" | "pause" | "off";
 
   /** How much recent transcript to keep visible after compaction.
@@ -179,7 +179,7 @@ export const DEFAULTS: UnifiedConfig = {
   compaction: "auto",
   compactionEngine: "blackhole",
   tailBehavior: "minimal",
-  midRunCompaction: "resume",
+  midRunCompaction: "off",
 
   observeAfterTokens: 15_000,
   reflectAfterTokens: 25_000,

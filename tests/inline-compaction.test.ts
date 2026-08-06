@@ -17,6 +17,7 @@ import {
   InlineCompactionUnavailableError,
   installHostInlineCompactionAdapter,
   installInlineCompactionAdapter,
+  parseHostFramePaths,
 } from "../src/om/inline-compaction.js";
 import { createPiAgentSessionHarness } from "./fixtures/pi-agent-session.js";
 
@@ -321,6 +322,74 @@ describe("Blackhole inline compaction adapter", () => {
     ]);
   });
 
+  it("ignores method-like text in literals when detecting compact shape", () => {
+    const SessionClass = createSessionClass({ legacyDisconnect: false });
+    class TextBearingSession extends SessionClass {
+      override async compact(customInstructions?: string) {
+        const diagnostic =
+          "this.abort() this._disconnectFromAgent() this._reconnectToAgent()";
+        void diagnostic;
+        await this.abort();
+        this.compactCalls += 1;
+        this.customInstructions = customInstructions;
+        this.sessionManager.appendCompaction();
+        this.agent.state.messages = [{ role: "user", content: "summary" }];
+        return {
+          summary: "summary",
+          firstKeptEntryId: "kept-1",
+          tokensBefore: 42,
+        };
+      }
+    }
+
+    expect(
+      installInlineCompactionAdapter({
+        sessionClass: TextBearingSession as never,
+      }),
+    ).toEqual({ supported: true });
+  });
+
+  it("attempts every shadow restoration when one cleanup step fails", async () => {
+    const SessionClass = createSessionClass({ legacyDisconnect: true });
+    class CleanupFailureSession extends SessionClass {
+      override async compact() {
+        this._disconnectFromAgent();
+        await this.abort();
+        this._compactionAbortController = new AbortController();
+        try {
+          this.sessionManager.appendCompaction();
+          this.agent.state.messages = [{ role: "user", content: "summary" }];
+          Object.defineProperty(this, "abort", {
+            configurable: false,
+            writable: true,
+            value: this.abort,
+          });
+          return {
+            summary: "summary",
+            firstKeptEntryId: "kept-1",
+            tokensBefore: 42,
+          };
+        } finally {
+          this._compactionAbortController = undefined;
+          this._reconnectToAgent();
+        }
+      }
+    }
+
+    expect(
+      installInlineCompactionAdapter({
+        sessionClass: CleanupFailureSession as never,
+      }),
+    ).toEqual({ supported: true });
+    const session = new CleanupFailureSession();
+    session._bindExtensionCore({});
+
+    await expect(
+      compactInlineAtTurnBoundary(session.sessionManager),
+    ).rejects.toThrow("restore");
+    expect(Object.hasOwn(session, "_disconnectFromAgent")).toBe(false);
+  });
+
   it("fails closed when Pi compact internals do not match a supported shape", async () => {
     class DriftedSession {
       sessionManager = {};
@@ -342,6 +411,14 @@ describe("Blackhole inline compaction adapter", () => {
     await expect(
       compactInlineAtTurnBoundary(session.sessionManager),
     ).rejects.toBeInstanceOf(InlineCompactionUnavailableError);
+  });
+
+  it("parses Windows native host stack paths", () => {
+    const windowsPath = String.raw`C:\Users\maple\node_modules\@earendil-works\pi-coding-agent\dist\runner.js`;
+
+    expect(
+      parseHostFramePaths(`Error\n    at run (${windowsPath}:12:34)`),
+    ).toEqual([windowsPath]);
   });
 
   it("patches every independently loaded host AgentSession identity", async () => {

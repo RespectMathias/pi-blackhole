@@ -22,7 +22,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "compaction": "auto",           // "auto" | "manual" | "off"
   "compactionEngine": "blackhole", // "blackhole" | "pi-default"
   "tailBehavior": "minimal",   // "pi-default" | "minimal"
-  "midRunCompaction": "resume", // "resume" | "pause" | "off" (default: resume)
+  "midRunCompaction": "off",    // "resume" | "pause" | "off" (default: off)
   "compactAfterTokens": 81000,    // Token threshold for auto-compaction
 
   // ── Observational Memory ──
@@ -151,9 +151,9 @@ Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
 
 | Value | Behavior |
 |-------|----------|
-| `"resume"` | Compact transparently at an awaited `turn_end`, then continue inside the **same** agent run and outer `session.prompt()` promise (default). No run abort and no synthetic continuation message. |
+| `"resume"` | Compact transparently at an awaited `turn_end`, then continue inside the **same** agent run and outer `session.prompt()` promise. No run abort and no synthetic continuation message. |
 | `"pause"` | Use Pi's native interrupting `ctx.compact()` at the threshold, then stop. The user continues manually. |
-| `"off"` | No mid-run evaluation; only check the threshold when the agent finishes a run. |
+| `"off"` | No mid-run evaluation; only check the threshold when the agent finishes a run (default). |
 
 `"resume"` reuses Pi's native summary, `session_before_compact`, session-entry, and context-rebuild pipeline. Blackhole's runtime adapter suppresses only the compaction method's initial internal quiesce (`abort`, plus disconnect on older Pi), then refreshes the low-level loop from the compacted `agent.state.messages` before another provider request. Completed tools stay paired, the active run signal is not aborted, background agents do not receive a false interrupt, and nested runners keep awaiting their original prompt promise.
 
@@ -164,14 +164,14 @@ Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
 **Re-trigger safety:** after a successful compaction, accumulated tokens are counted from the fresh compaction entry. Failed or cancelled attempts are suspended until pressure drops below the threshold.
 
 ```jsonc
-// Default: compact mid-run without ending or replacing the current run
+// Default: only evaluate when the run ends
+{ "midRunCompaction": "off" }
+
+// Opt in to transparent same-run compaction during long tool loops
 { "midRunCompaction": "resume" }
 
 // Interrupt the run, compact, and hand control back to the user
 { "midRunCompaction": "pause" }
-
-// Only evaluate when the run ends
-{ "midRunCompaction": "off" }
 ```
 
 ### `compactAfterTokens`

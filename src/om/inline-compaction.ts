@@ -132,6 +132,63 @@ function getRegistry(): AdapterRegistry {
   return registry;
 }
 
+function maskNonCodeText(source: string): string {
+  const masked = source.split("");
+  let index = 0;
+  const blank = (position: number) => {
+    if (masked[position] !== "\n" && masked[position] !== "\r") {
+      masked[position] = " ";
+    }
+  };
+
+  while (index < source.length) {
+    const current = source[index];
+    const next = source[index + 1];
+
+    if (current === '"' || current === "'" || current === "`") {
+      const delimiter = current;
+      blank(index++);
+      while (index < source.length) {
+        const value = source[index];
+        blank(index);
+        index += 1;
+        if (value === "\\" && index < source.length) {
+          blank(index++);
+          continue;
+        }
+        if (value === delimiter) break;
+      }
+      continue;
+    }
+
+    if (current === "/" && next === "/") {
+      blank(index++);
+      blank(index++);
+      while (index < source.length && source[index] !== "\n") blank(index++);
+      continue;
+    }
+
+    if (current === "/" && next === "*") {
+      blank(index++);
+      blank(index++);
+      while (index < source.length) {
+        const value = source[index];
+        const following = source[index + 1];
+        blank(index++);
+        if (value === "*" && following === "/") {
+          blank(index++);
+          break;
+        }
+      }
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return masked.join("");
+}
+
 function countMethodCalls(source: string, method: string): number {
   const pattern = new RegExp(`this\\.${method}\\s*\\(\\s*\\)`, "g");
   return source.match(pattern)?.length ?? 0;
@@ -150,7 +207,9 @@ function detectCompactShape(
     return "AgentSession._bindExtensionCore() is missing";
   }
 
-  const source = Function.prototype.toString.call(prototype.compact);
+  const source = maskNonCodeText(
+    Function.prototype.toString.call(prototype.compact),
+  );
   const abortCalls = countMethodCalls(source, "abort");
   if (
     abortCalls !== 1 ||
@@ -275,15 +334,25 @@ function findPiPackageRoot(startPath: string): string | undefined {
   return undefined;
 }
 
-function hostFramePaths(stack: string): string[] {
+export function parseHostFramePaths(stack: string): string[] {
   const paths: string[] = [];
   for (const line of stack.split("\n")) {
     const match =
-      line.match(/\((file:\/\/.*|\/.*):\d+:\d+\)$/) ??
-      line.match(/at (file:\/\/.*|\/.*):\d+:\d+$/);
+      line.match(/\((.+):\d+:\d+\)\s*$/) ?? line.match(/\bat (.+):\d+:\d+\s*$/);
     if (!match?.[1]) continue;
-    const rawPath = match[1];
-    if (!rawPath.includes("@earendil-works/pi-coding-agent")) continue;
+    const rawPath = match[1].trim();
+    const normalizedPath = rawPath.replaceAll("\\", "/");
+    if (!normalizedPath.includes("@earendil-works/pi-coding-agent")) {
+      continue;
+    }
+    if (
+      !rawPath.startsWith("file://") &&
+      !rawPath.startsWith("/") &&
+      !rawPath.startsWith("\\\\") &&
+      !/^[A-Za-z]:[\\/]/.test(rawPath)
+    ) {
+      continue;
+    }
     try {
       paths.push(
         rawPath.startsWith("file://") ? fileURLToPath(rawPath) : rawPath,
@@ -300,7 +369,7 @@ export async function installHostInlineCompactionAdapter(
 ): Promise<InlineCompactionAdapterStatus> {
   const packageRoots = new Set<string>();
   const stack = options.stack ?? new Error().stack ?? "";
-  for (const framePath of hostFramePaths(stack)) {
+  for (const framePath of parseHostFramePaths(stack)) {
     const root = findPiPackageRoot(framePath);
     if (root) packageRoots.add(root);
   }
@@ -463,63 +532,95 @@ export async function compactInlineAtTurnBoundary(
   let disconnectSuppressed = false;
   const messagesBefore = session.agent.state.messages;
 
+  let result!: CompactionResult;
+  let operationFailed = false;
+  let operationError: unknown;
+  const cleanupErrors: unknown[] = [];
+
   try {
-    if (shape.disconnectsAgent) {
-      const realDisconnect = session._disconnectFromAgent;
-      if (!realDisconnect) {
-        throw new InlineCompactionUnavailableError(
-          "Blackhole inline compaction is unavailable: disconnect hook disappeared",
+    try {
+      if (shape.disconnectsAgent) {
+        const realDisconnect = session._disconnectFromAgent;
+        if (!realDisconnect) {
+          throw new InlineCompactionUnavailableError(
+            "Blackhole inline compaction is unavailable: disconnect hook disappeared",
+          );
+        }
+        restores.push(
+          shadowProperty(
+            session,
+            "_disconnectFromAgent",
+            function inlineDisconnect(this: PatchableSession): void {
+              if (!disconnectSuppressed) {
+                disconnectSuppressed = true;
+                return;
+              }
+              realDisconnect.call(this);
+            },
+          ),
         );
       }
+
       restores.push(
         shadowProperty(
           session,
-          "_disconnectFromAgent",
-          function inlineDisconnect(this: PatchableSession): void {
-            if (!disconnectSuppressed) {
-              disconnectSuppressed = true;
+          "abort",
+          async function inlineAbort(this: PatchableSession): Promise<void> {
+            if (!abortSuppressed) {
+              abortSuppressed = true;
               return;
             }
-            realDisconnect.call(this);
+            this._compactionAbortController?.abort();
+            await realAbort.call(this);
           },
         ),
       );
-    }
 
-    restores.push(
-      shadowProperty(
-        session,
-        "abort",
-        async function inlineAbort(this: PatchableSession): Promise<void> {
-          if (!abortSuppressed) {
-            abortSuppressed = true;
-            return;
-          }
-          this._compactionAbortController?.abort();
-          await realAbort.call(this);
-        },
-      ),
-    );
-
-    const result = await originalCompact.call(session, customInstructions);
-    // Mark the refresh before validating the quiesce invariant. If a future Pi
-    // shape mutates state but does not invoke the expected hook, the error stays
-    // explicit while the still-active loop is prevented from using stale context.
-    registry.refreshPending.add(session);
-    if (!abortSuppressed || (shape.disconnectsAgent && !disconnectSuppressed)) {
-      throw new InlineCompactionUnavailableError(
-        "Blackhole inline compaction invariant failed: Pi quiesce hooks were not invoked as expected",
-      );
-    }
-
-    return result;
-  } catch (error) {
-    if (session.agent.state.messages !== messagesBefore) {
+      result = await originalCompact.call(session, customInstructions);
+      // Mark the refresh before validating the quiesce invariant. If a future Pi
+      // shape mutates state but does not invoke the expected hook, the error stays
+      // explicit while the still-active loop is prevented from using stale context.
       registry.refreshPending.add(session);
+      if (
+        !abortSuppressed ||
+        (shape.disconnectsAgent && !disconnectSuppressed)
+      ) {
+        throw new InlineCompactionUnavailableError(
+          "Blackhole inline compaction invariant failed: Pi quiesce hooks were not invoked as expected",
+        );
+      }
+    } catch (error) {
+      if (session.agent.state.messages !== messagesBefore) {
+        registry.refreshPending.add(session);
+      }
+      operationFailed = true;
+      operationError = error;
     }
-    throw error;
   } finally {
     registry.compactionInFlight.delete(session);
-    for (const restore of restores.reverse()) restore();
+    for (let index = restores.length - 1; index >= 0; index -= 1) {
+      try {
+        restores[index]();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
   }
+
+  if (operationFailed) {
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [operationError, ...cleanupErrors],
+        "Blackhole inline compaction failed and could not restore all session properties",
+      );
+    }
+    throw operationError;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      cleanupErrors,
+      "Blackhole inline compaction could not restore all session properties",
+    );
+  }
+  return result;
 }

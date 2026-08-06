@@ -95,13 +95,13 @@ export const config = new ConfigManager<UnifiedConfig>({
       type: "enum",
       label: "Mid-run compaction",
       description:
-        "resume=compact transparently and continue the same run (default), pause=interrupt and stop, off=only check when run ends",
+        "resume=compact transparently and continue the same run, pause=interrupt and stop, off=only check when run ends (default)",
       value: cfg.midRunCompaction,
       options: ["resume", "pause", "off"],
       optionLabels: {
-        resume: "resume — transparent compact, same run (default)",
+        resume: "resume — transparent compact, same run",
         pause: "pause — interrupt, compact, and stop",
-        off: "off — only check when run ends",
+        off: "off — only check when run ends (default)",
       },
     },
     {
