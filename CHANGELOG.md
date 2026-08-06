@@ -1,3 +1,19 @@
+## [Unreleased]
+
+### Added
+
+- **Session-local config.** Config values can now be set at session scope via `/blackhole configure` or the config modal's scope selector. Session config is ephemeral — it lives only for the current session and overrides project-local and env values, so you can experiment with settings like `midRunCompaction` or `compactionEngine` without touching files or environment variables.
+
+- **All env overrides are visible in the config modal.** `PI_BLACKHOLE_MID_RUN_COMPACTION`, `PI_BLACKHOLE_COMPACTION`, and `PI_BLACKHOLE_COMPACTION_ENGINE` (alongside existing overrides like `PI_BLACKHOLE_SKIP_PROVIDERS` and `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS`) now appear in the env tab of the config modal with their current effective values, so you can see at a glance what the environment is contributing.
+
+### Changed
+
+- **Config modal migrated to the canonical `pi-base` config-rework surface.** The modal now uses the upstream scope-selector and config-flow, replacing the legacy `openSettingsModal` path. The layer precedence is: global → project → env → session, matching pi-utils behavior.
+
+### Removed
+
+- **Dead monolith-era config code.** Removed `src/pi-base/config-settings.ts`, `settings-registry.ts`, `settings-ui.ts`, `registry.ts`, `report.ts`, `llm.ts`, `hash.ts`, `context-provider.ts`, `once.ts`, `debug.ts`, `config-manager-howto.md`, `settings/README.md`, and the obsolete `scope-action.test.ts`. Blackhole-specific wiring (kitty decode, NixOS read-only warnings, key migration, clamping) remains in `blackhole-settings.ts`.
+
 ## [0.4.4] - 2026-08-06
 
 ### Added

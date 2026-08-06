@@ -1,8 +1,8 @@
 {
   "name": "pi-blackhole",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "packageManager": "pnpm@11.2.2",
-  "description": "Unified compaction + observational memory extension for Pi — compresses conversation context while preserving durable observations and reflections",
+  "description": "Unified compaction + observational memory extension for Pi \u2014 compresses conversation context while preserving durable observations and reflections",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
