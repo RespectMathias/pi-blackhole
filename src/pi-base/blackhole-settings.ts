@@ -99,7 +99,7 @@ export const config = new ConfigManager<UnifiedConfig>({
       value: cfg.midRunCompaction,
       options: ["resume", "pause", "off"],
       optionLabels: {
-        resume: "resume — transparent compact, same run",
+        resume: "resume — transparent compact, same run (experimental)",
         pause: "pause — interrupt, compact, and stop",
         off: "off — only check when run ends (default)",
       },

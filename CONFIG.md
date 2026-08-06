@@ -151,7 +151,7 @@ Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`.
 
 | Value | Behavior |
 |-------|----------|
-| `"resume"` | Compact transparently at an awaited `turn_end`, then continue inside the **same** agent run and outer `session.prompt()` promise. No run abort and no synthetic continuation message. |
+| `"resume"` *(experimental)* | Compact transparently at an awaited `turn_end`, then continue inside the **same** agent run and outer `session.prompt()` promise. No run abort and no synthetic continuation message. |
 | `"pause"` | Use Pi's native interrupting `ctx.compact()` at the threshold, then stop. The user continues manually. |
 | `"off"` | No mid-run evaluation; only check the threshold when the agent finishes a run (default). |
 

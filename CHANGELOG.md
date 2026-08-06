@@ -2,7 +2,7 @@
 
 ### Fixed
 
-- **`midRunCompaction: "resume"` no longer aborts or replaces the active run.** The old `ctx.compact()` + `blackhole-resume` path propagated a false interrupt to background/subagent extensions and let nested child runners resolve before Blackhole's detached resume run finished. Resume mode now performs Pi's native compaction pipeline inline from the awaited `turn_end` handler, refreshes the next low-level turn from the compacted messages, and continues inside the original `session.prompt()` promise. Completed tool calls remain paired; no synthetic user/custom message is injected.
+- **`midRunCompaction: "resume"` no longer aborts or replaces the active run.** The old `ctx.compact()` + `blackhole-resume` path propagated a false interrupt to background/subagent extensions and let nested child runners resolve before Blackhole's detached resume run finished. Resume mode now performs Pi's native compaction pipeline inline from the awaited `turn_end` handler, refreshes the next low-level turn from the compacted messages, and continues inside the original `session.prompt()` promise. Completed tool calls remain paired; no synthetic user/custom message is injected. `"resume"` is an **experimental opt-in** — it monkey-patches Pi host internals and can silently deactivate on host drift.
 - **Mid-run compaction compatibility fails closed.** A reload-idempotent, weakly referenced runtime adapter recognizes the known Pi 0.81 and 0.84 `AgentSession.compact()` shapes. Unknown internal drift refuses transparent compaction and leaves the active run alive instead of falling back to the unsafe aborting path. External abort/cancellation still passes through normally.
 
 ### Testing
