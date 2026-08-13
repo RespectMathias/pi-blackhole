@@ -37,15 +37,20 @@ const invoke = async (
   tool: any,
   file: string,
   params: Record<string, unknown>,
+  lineageEntryIds?: string[],
 ) => {
-  const result = await tool.execute("tool-call", params, undefined, undefined, {
-    sessionManager: {
-      getSessionFile: () => file,
-      getBranch: () => [{ id: "m1" }],
-      getEntries: () => [{ id: "m1" }, { id: "m2" }],
-    },
-  });
-  return result.content[0].text as string;
+  return await tool
+    .execute("tool-call", params, undefined, undefined, {
+      sessionManager: {
+        getSessionFile: () => file,
+        getBranch: () =>
+          lineageEntryIds
+            ? lineageEntryIds.map((id) => ({ id }))
+            : [{ id: "m1" }],
+        getEntries: () => [{ id: "m1" }, { id: "m2" }],
+      },
+    })
+    .then((r: any) => r.content[0].text as string);
 };
 
 describe("vcc_recall scope", () => {
@@ -78,6 +83,89 @@ describe("vcc_recall scope", () => {
       const all = await invoke(tool, file, { expand: [1], scope: "all" });
       expect(all).toContain("Scope: all");
       expect(all).toContain("#1 [user] off lineage secret");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("drill-down scope", () => {
+  it("blocks #N:path on off-lineage entries by default, allows with scope all", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-vcc-drilldown-scope-"));
+    const file = join(dir, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "message",
+        id: "m0",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "tc0",
+              name: "edit",
+              arguments: { path: "src/on.ts", oldText: "x", newText: "y" },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "m1",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "tc1",
+              name: "edit",
+              arguments: {
+                path: "src/off.ts",
+                oldText: "secret-old",
+                newText: "secret-new",
+              },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "m2",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "tc2",
+              name: "edit",
+              arguments: { path: "src/on.ts", oldText: "a", newText: "b" },
+            },
+          ],
+        },
+      }),
+    ];
+    writeFileSync(file, lines.join("\n") + "\n", "utf8");
+    try {
+      const tool = register();
+      const lineage = ["m0", "m2"];
+
+      // off-lineage entry blocked under default scope
+      const blocked = await invoke(tool, file, { query: "#1:off.ts" }, lineage);
+      expect(blocked).toContain(
+        "Cannot expand indices outside active lineage: 1",
+      );
+      expect(blocked).not.toContain("secret-old");
+
+      // on-lineage entry still drills under default scope
+      const onOut = await invoke(tool, file, { query: "#0:on.ts" }, lineage);
+      expect(onOut).toContain("src/on.ts");
+
+      // scope:'all' reaches the other branch
+      const allOut = await invoke(tool, file, {
+        query: "#1:off.ts",
+        scope: "all",
+      });
+      expect(allOut).toContain("src/off.ts");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
