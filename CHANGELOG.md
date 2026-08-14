@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.4.6] - 2026-08-14
 
 ### Added
 
@@ -13,6 +13,15 @@
 ### Removed
 
 - **Dead monolith-era config code.** Removed `src/pi-base/config-settings.ts`, `settings-registry.ts`, `settings-ui.ts`, `registry.ts`, `report.ts`, `llm.ts`, `hash.ts`, `context-provider.ts`, `once.ts`, `debug.ts`, `config-manager-howto.md`, `settings/README.md`, and the obsolete `scope-action.test.ts`. Blackhole-specific wiring (kitty decode, NixOS read-only warnings, key migration, clamping) remains in `blackhole-settings.ts`.
+
+### Fixed
+
+- **Recall drill-down honors lineage scope.** ([#54](https://github.com/k0valik/pi-blackhole/issues/54)) `#N:path` drill-down now checks the active lineage before expanding off-lineage entries, matching every other recall path. Off-lineage indices are blocked under the default `scope:"lineage"` and require `scope:"all"` to access.
+- **Inline compaction restores the Working indicator.** ([#52](https://github.com/k0valik/pi-blackhole/pull/52), thanks @daoguademeng) After inline compaction completes, the UI "Working" indicator is restored so the user sees activity resumed.
+
+### Dependencies
+
+- Bumped dev-dependency group across 2 PRs (#45, #53): `@typescript-eslint/eslint-plugin` to `8.66.0`, `eslint` to `10.8.0`, `lint-staged` to `17.3.0`, `typebox` to `1.3.10`, `typescript` to `6.0.3` (pinned for `@typescript-eslint` v8 compatibility), and `vitest` to `4.1.10`.
 
 ## [0.4.4] - 2026-08-06
 
