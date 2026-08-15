@@ -1,3 +1,11 @@
+## [0.4.7] - 2026-08-15
+
+### Fixed
+
+- **Installation from git now works without a prebuilt `dist/`.** The package manifest entrypoint now points at `./index.ts` instead of `./dist/index.js`. Because `dist/` is gitignored, direct Git installs were missing the extension entrypoint and failing to load. Pi can load the TypeScript entrypoint directly, so this restores functionality for `npm install github:k0valik/pi-blackhole` and similar Git-based installs. Registry installs are unaffected (npm/pnpm/bun ship the prebuilt `dist/` bundle).
+
+---
+
 ## [0.4.6] - 2026-08-14
 
 ### Added
