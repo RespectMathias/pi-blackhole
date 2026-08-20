@@ -44,7 +44,7 @@ The user describes the desired design as **layered**: recall tool layer → proj
 | **D8** | **Basename/fuzzy fallback:** if the query contains a path-like token (`src/foo.ts`), additionally emit an rg pattern on the basename (`foo.ts`); matches annotate `(basename match)`. | Req 6 — survives renames/moves inside the project. |
 | **D9** | **New params on the `recall` tool:** `project: boolean` (default `false`) + `projectScope: StringEnum ["conversation","tool_outputs","all"]` (default `conversation`); `query` required when `project: true`. Command adds `project:true` and `pscope:(...)` parsing (new regex alongside `SCOPE_RE`/`MODE_RE` — `pscope` avoids colliding with the existing `scope:(lineage|all)`). | Matches "boolean/object param" intent; explicit separate scope keeps the existing `scope`/`mode` semantics untouched. |
 | **D10** | **Staleness header:** the project formatter emits, once per results block (every page), exactly `<--old context-->` plus a one-liner: `entries from older sessions may be stale — decisions may have changed since; tread lightly`. Shared by tool and command (single constant string). | Req 10. The `<--old context-->` marker mirrors pi's compaction labeling, so it reads naturally to the agent. |
-| **D11** | **rg is a hard requirement** for project recall (chrollo is rg-native); graceful error if `rg` is not on PATH. | Blackhole currently has zero binary deps — this is the accepted tradeoff (decision point, see §13 Q1). ripgrep 15.1.0 present on the dev machine; ~102MB corpus per project dir makes pure-Node scanning too slow. |
+| **D11** | **rg is a hard requirement** for project recall (chrollo is rg-native); graceful error if `rg` is not on PATH. | Blackhole currently has zero binary deps — this is the accepted tradeoff (decision point, see §13 Q1). ripgrep 15.1.0 present on the dev machine; ~102MB corpus per project dir makes pure-Node scanning too slow. Need to figure out where pi ships the rg binary to point at it |
 | **D12** | **New config fields:** `projectRecallSessionCount` (default **60**, in the 50–75 range) and `projectRecallEnabled` (default `true`). | Bounds the corpus; doc-consistency rule applies (README.md / CONFIG.md / llms.txt must mirror `src/core/unified-config.ts` defaults). |
 
 ## 5. Target architecture (the layered approach)
@@ -387,13 +387,32 @@ Chrollo's `parseLine` keeps only user/assistant message lines — `om.*` custom 
 - Cross-session snippet output annotates `(session id, #N)` instead of bare `#N` when referencing source entries of observations from other sessions.
 - Tests: fixture sessions with recorded/dropped observations + a pending.json batch; assert observation-backed hits rank above bare mentions, dropped observations don't boost, cross-session source annotations render correctly.
 
+## §18 — ripgrep discovery (no bundling, no hard requirement)
+
+**Verified facts (0.84.0):**
+- `tools-manager.js` exports `getToolPath(tool)` / `ensureTool(tool, silent?)` but they are **not re-exported** from the package index (`dist/index.d.ts`) — deep import only, not public API, 0.81.1-compat risk → **do not import them**; mirror the logic locally instead (~15 lines).
+- `getToolPath` logic (tools-manager.js:78-91): check `join(getBinDir(), "rg" + (win32 ? ".exe" : ""))` first, then system PATH via `commandExists`.
+- `getBinDir() = join(getAgentDir(), "bin")` (config.js:440-441) → `~/.pi/agent/bin/` (matches CHANGELOG #470). Blackhole already resolves agentDir via the same `getAgentDir()` for session paths, so the bin dir is consistent.
+- On Android/Termux pi skips download (`pkg install rg` → PATH only).
+
+**Design (D19 — replace/extend D11):**
+- New module `src/core/resolve-rg.ts`: `resolveRgPath(): string | null` with candidate resolution in order:
+  1. NO explicit override `PI_BLACKHOLE_RG_PATH` env (consistent with existing `PI_BLACKHOLE_*` convention), no new config knob, overkill for simple ripgrep finding! 
+  2. Pi managed dir: `join(getAgentDir(), "bin", "rg" | "rg.exe")` — `existsSync`.
+  3. PATH walk: split `process.env.PATH` by `path.delimiter`, `existsSync(join(dir, rg|rg.exe))`, `fs.accessSync(X_OK)` on non-win32.
+- Verify the chosen candidate with `execFile(rgPath, ["--version"])` (5s timeout); on failure fall through to next candidate.
+- Memoize result per process (re-stat cached path cheaply per call).
+- None found → actionable error in the tool result ("run pi once so it downloads rg to ~/.pi/agent/bin, or install ripgrep, or set PI_BLACKHOLE_RG_PATH") — rg stays a soft requirement, graceful degradation. Pure-Node fallback scanner remains an open question (cold-disk latency, see §13/§14).
+- Vendored `runRipgrep` gets an `rgPath` parameter (thread through the injectable `RgRunner` type — same seam chrollo already uses for tests), so tests stub the runner and never touch a real binary.
+
+- Graceful degradation and fail with an error if rg is not available after all the discovery, so model doesn't try to use the project recall over and over again if not available.
+
 ---
 
 ## Appendix A — `/blackhole export` — distilled project memory dump (author concept, 2026-08-20)
 
 Closely tied to the project-recall plan: same treatment, reuses the same primitives (chrollo search/normalize, tf-idf/RRF/recency ranking, levenshtein dedup, unified observation corpus from §17) and builds on it.
-
-Replies to the pi-memory compatibility question (no direct integration — too many memory tools/extensions for a compat layer). Instead, the export command turns the observation pipeline's accumulated output into a portable, distilled artifact.
+Instead, the export command turns the observation pipeline's accumulated output into a portable, distilled artifact.
 
 ### A.1 What it does
 
