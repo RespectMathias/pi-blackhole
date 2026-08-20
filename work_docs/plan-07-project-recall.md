@@ -46,7 +46,6 @@ The user describes the desired design as **layered**: recall tool layer → proj
 | **D10** | **Staleness header:** the project formatter emits, once per results block (every page), exactly `<--old context-->` plus a one-liner: `entries from older sessions may be stale — decisions may have changed since; tread lightly`. Shared by tool and command (single constant string). | Req 10. The `<--old context-->` marker mirrors pi's compaction labeling, so it reads naturally to the agent. |
 | **D11** | **rg is a hard requirement** for project recall (chrollo is rg-native); graceful error if `rg` is not on PATH. | Blackhole currently has zero binary deps — this is the accepted tradeoff (decision point, see §13 Q1). ripgrep 15.1.0 present on the dev machine; ~102MB corpus per project dir makes pure-Node scanning too slow. |
 | **D12** | **New config fields:** `projectRecallSessionCount` (default **60**, in the 50–75 range) and `projectRecallEnabled` (default `true`). | Bounds the corpus; doc-consistency rule applies (README.md / CONFIG.md / llms.txt must mirror `src/core/unified-config.ts` defaults). |
-| **D13** | **Lockstep extension:** add `upstream-chrollo` remote + a note in `.pi/skills/lockstep/SKILL.md` covering the vendored copy; human approval required before porting chrollo updates. | AGENTS.md lockstep discipline applies to all upstreams; chrollo is a new third upstream alongside pi-vcc / pi-observational-memory. |
 
 ## 5. Target architecture (the layered approach)
 
@@ -125,14 +124,13 @@ entries from older sessions may be stale — decisions may have changed since; t
 - Pagination: `-- page 1/3 (15 results), use page:N or /blackhole recall page:2 --` (existing pattern).
 - Drill-down (`#N:path` on a project result) is a **v2 option** via the vendored `read()` window (see §14 non-goals).
 
-## 9. Vendoring & upstream tracking
+## 9. Vendoring chrollo primitives
 
 - Copy from `/tmp/opencode/pi-chrollo` (v0.4.0): `src/search.ts`, `src/normalize.ts`, `src/tokenize.ts`, `src/format.ts`, `src/read.ts` → `src/chrollo/`. Add MIT attribution header with upstream URL + version. Skip `index.ts` (tool registration), `corpus.ts` (hardcoded root — replaced by our resolution), `test/`.
 - Surgical modifications only:
   - `defaultRoot()` → injectable root (project session dir).
   - `parseLine` → role/scope filter (keep toolResult/bashExecution/toolCalls when scope ≠ conversation).
   - `search()` → `fileList` mode (explicit paths) alongside root mode.
-- Lockstep (D13): `git remote add upstream-chrollo https://github.com/k3-2o/pi-chrollo`; update `.pi/skills/lockstep/SKILL.md` to name the third upstream; porting chrollo changes requires human approval, same as the other two.
 - Verify the five files contain no pi API surface (they are pure Node + rg — confirmed against the 0.80.x-era package; no 0.84-only APIs).
 
 ## 10. Config surface (new fields)
@@ -178,14 +176,13 @@ tests/project-recall.test.ts   fixture dir + stubbed RgRunner + JSONL v3 fixture
 | Cold-disk latency on first pass over ~102MB corpus | Medium | One bounded rg pass over explicit files with `-m` caps; candidate list cached with TTL (reuse load-messages LRU pattern); parse timestamps only for matched lines |
 | rg missing on user machines (new binary dep) | Low→Medium | D11 graceful error message; documented in README/llms.txt; decision point Q1 |
 | Chrollo parseLine drops assistant toolCalls for indexing | By design | Extended only for scope ≠ conversation (req 8); conversation stays chrollo-faithful |
-| Vendored copy drifts from upstream | Low | Lockstep tracking (D13) + attribution header |
+| Vendored copy drifts from upstream chrollo | Low | Attribution header + version note; re-vendor on demand |
 
 ## 14. Open questions / decision points
 
 1. **rg as a hard requirement** vs pure-Node fallback scanner for project recall? (recommend: hard requirement — chrollo is rg-native, ~102MB corpora are too slow in Node)
-2. **Lockstep scope:** add `upstream-chrollo` to the lockstep skill's upstream list? (recommend: yes, D13)
-3. **`projectRecallSessionCount` default = 60** within the 50–75 range — acceptable? (recommend: yes)
-4. **Drill-down into project results** (`#N:path` → window via vendored `read()`): v1 or v2? (recommend: v2, keep v1 read-only snippets)
+2. **`projectRecallSessionCount` default = 60** within the 50–75 range — acceptable? (recommend: yes)
+3. **Drill-down into project results** (`#N:path` → window via vendored `read()`): v1 or v2? (recommend: v2, keep v1 read-only snippets)
 
 ## 15. Non-goals (v1)
 
@@ -328,11 +325,11 @@ Secondary failure, even with the dot-bug fixed: the BM25 path (line 431) splits 
 
 ### 16.2 Design direction (author-confirmed, 2026-08-20)
 
-**No new param/array on the recall tool.** The model calls `recall` with the same arguments, same code — internally the tool runs the existing search AND a new lexical search, then merges (RRF fusion + dedupe by entry index). Partially changing the upstream-tracked `search-entries.ts` (e.g. to export internals) is **explicitly allowed** — it becomes a lockstep-divergent file, flagged in upstream tracking.
+**No new param/array on the recall tool.** The model calls `recall` with the same arguments, same code — internally the tool runs the existing search AND a new lexical search, then merges (RRF fusion + dedupe by entry index). `search-entries.ts` can be changed freely (e.g. to export internals) — it is not treated as untouchable.
 
 **D14 — Single pipeline, dual-pass fusion.** One code path: upstream `searchEntries` (fixed) + new `lexicalSearchEntries` on the same entries/messages; merge via RRF (`Σ 1/(k+r)`, k≈60), dedupe by entry index, prefer the lexical snippet (atomic-path-aware) when an entry appears in both lists. Cheap early-out: trivial queries (≤2 terms, no path tokens) run the upstream path only.
 
-**D15 — Surgical upstream edits to `search-entries.ts`** (lockstep-divergent, flagged):
+**D15 — Surgical edits to `search-entries.ts`:**
 - Fix `looksLikeRegex`: drop `.` from the metachar set; regex path fires only for pattern-forming metachars (`^ $ ( ) [ ] { } * + ? | \`).
 - Export what the lexical pass needs: `fullText`, `buildBM25Context`, `bm25Score`, `snippetRegex`, `lineSnippet` (or the computed BM25 result list).
 
@@ -348,4 +345,71 @@ Secondary failure, even with the dot-bug fixed: the BM25 path (line 431) splits 
 
 **D18 — Shared with project recall.** Plan-07's project recall consumes the same lexical core + fusion — one query-understanding path for both scopes. The atomic path-token extraction doubles as the substrate for the renamed/moved basename fallback (req 6) and chrollo's `queryTerms` already provides the same camelCase/snake_case splitting discipline (author's "Query Expansion for Code Identifiers" note below).
 
-**Tests:** pin both single-term queries (upstream-faithful behavior preserved) and prose-query behavior (the dot-bug regression case: `"foo.ts should not be rewritten to bar.ts"` must return hits, ranked with both files present first); fusion dedupe; RRF ordering; proximity; inflection; self-correction footer.
+**Tests:** pin both single-term queries (existing behavior preserved) and prose-query behavior (the dot-bug regression case: `"foo.ts should not be rewritten to bar.ts"` must return hits, ranked with both files present first); fusion dedupe; RRF ordering; proximity; inflection; self-correction footer.
+
+---
+
+## 17. Observations as first-class corpus + cross-search (author note, 2026-08-20)
+
+Author requirement, verbatim intent: project recall must be able to "search" and rank the **observations** in the pending json files we write and the jsonl files we write — the cross-search where recorded observations are surfaced and cross-referenced with direct `#N:path` entries must be wired into project-wide recall, and observation-backed evidence gets **higher values and better treatment in the RRF ranking**.
+
+### 17.1 What exists today (single-session cross-search)
+
+Verified in code:
+
+- Every observation is recorded with `sourceEntryIds` — the exact session entry ids it derives from (observer prompt, `src/om/agents/observer/prompts.ts:23`; invalid ids rejected in `agents/observer/agent.ts`). Rendered line form: `[id] timestamp [relevance] content` (`ledger/render-summary.ts:21`).
+- `indexLedger` (`src/om/ledger/recall.ts:101`) indexes the branch's `om.observations.recorded` / `om.reflections.recorded` / `om.observations.dropped` custom entries + a `droppedIds` set.
+- **vcc→OM direction** (`src/om/reverse-recall.ts`): `findObservationsForEntryIds` / `findReflectionsForEntryIds` — given target entry ids, surface observations whose `sourceEntryIds` intersect (reflections match indirectly via `supportingObservationIds`). Wired into `src/tools/recall.ts:153,228` and `src/commands/vcc-recall.ts:35` as appended "Related observations/reflections" blocks. **Fed from `ctx.sessionManager.getBranch()` — the ACTIVE session only.**
+- **OM→vcc direction** (`src/om/ledger/recall.ts:194` `recallMemorySources`): a 12-hex memory id resolves back to its source entries, with missing/nonSource/dropped/partial/collision flags. Used by the `MEMORY_ID_PATTERN` path in recall.ts.
+
+### 17.2 The gap
+
+Chrollo's `parseLine` keeps only user/assistant message lines — `om.*` custom entries (observations/reflections/dropped) and pending.json batches (`src/om/pending.ts`, `<sessionId>-pending.json` observationBatches in manual mode) are **not searchable** in the planned project recall as of §16. This section closes that gap.
+
+### 17.3 Author intent — unified corpus, bidirectional cross-search, evidence-mass ranking
+
+1. **Corpus:** project recall indexes, per session: message lines (chrollo), `om.observations.recorded` entries (observation = {id, content, timestamp, relevance, sourceEntryIds, tokenCount}), reflections, dropped ids, plus pending.json observation batches. Observations are first-class documents, not just text.
+2. **Cross-referencing (generalized to project scope):**
+   - Entry/snippet hit → related observations: extend `findObservationsForEntryIds` from branch-only to a **project-level ledger index** (keyed per session, since `sourceEntryIds` are session-local).
+   - Observation hit → its source entries: generalize `recallMemorySources` across sessions (`(sessionId, #N)` annotations instead of session-local `#N`).
+3. **Evidence-mass boost in RRF** (author example, verbatim): "a CRITICAL observation recorded, levenshtein matched with 15 other user mentions as well, and then also written in the code, should get a higher value, than if there is no observation recorded for a similar stuff." Concretely, the RRF score of a hit receives a multiplier from the sum of:
+   - **relevance tier** of the backing observation(s): critical > high > medium > low (the LLM's "primitive session-level rank"),
+   - **cluster size**: levenshtein near-duplicate count across sessions/mentions (recurring insight → stronger),
+   - **code corroboration**: content-bearing tool calls (write/edit) touching matching paths/topics,
+   - **status**: active observations boost; `dropped` ones do not (droppedIds set).
+   - Ranked: observation + cluster + code > bare observation > bare mention (no observation recorded).
+4. **Same unified corpus feeds the `/blackhole export` command** (Appendix A) — ranking/dedup machinery is shared.
+
+### 17.4 Wiring notes
+
+- New: `src/project-recall/ledger.ts` — project-level observation/reflection index (per-session indexLedger on parsed custom entries + pending batches).
+- `reverse-recall.ts` / `ledger/recall.ts` can be modified directly as needed — the project layer wraps or extends them with session-aware lookup, or mirrors their logic with (session, id) keys.
+- Cross-session snippet output annotates `(session id, #N)` instead of bare `#N` when referencing source entries of observations from other sessions.
+- Tests: fixture sessions with recorded/dropped observations + a pending.json batch; assert observation-backed hits rank above bare mentions, dropped observations don't boost, cross-session source annotations render correctly.
+
+---
+
+## Appendix A — `/blackhole export` — distilled project memory dump (author concept, 2026-08-20)
+
+Closely tied to the project-recall plan: same treatment, reuses the same primitives (chrollo search/normalize, tf-idf/RRF/recency ranking, levenshtein dedup, unified observation corpus from §17) and builds on it.
+
+Replies to the pi-memory compatibility question (no direct integration — too many memory tools/extensions for a compat layer). Instead, the export command turns the observation pipeline's accumulated output into a portable, distilled artifact.
+
+### A.1 What it does
+
+1. **Walk the project's session `.jsonl` files** + the pending json files (`<sessionId>-pending.json`, manual mode) and collect the observational memory entries: observations (with LLM-assigned `relevance`: critical/high/medium/low — the "primitive, session-level rank"), reflections, dropped ids.
+2. **Rank** with the same machinery as project recall (§16/§17): tf-idf / RRF reranking, recency sorting, first-seen.
+3. **Near-duplicate clustering** (levenshtein-style): catch close candidates — very similar observations that surfaced several times across sessions get boosted up the rankings; near-identical ones appear **at most 2–3 times** in the output.
+4. **Strip the technical prefixes** — `[id] timestamp [relevance]` — from each observation line (they were already sorted as described above; the tags' work is done by then).
+5. **Produce a structured markdown file** — a distilled version of the project's memory, potentially still 50–100kb / several thousand lines. Anyone with project knowledge can filter out what's still relevant (the extension does the cheap static analysis programmatically; the "owner" — with an LLM's help — surfaces what is still valid).
+6. **Import-ready**: the survivors can be imported into the user's choice of agent memory system or tooling (pi-memory, Obsidian, vector store, ...).
+
+### A.2 Relationship to the pipeline
+
+- Addresses the "wasted tokens" concern: observations persist in session files (or pending buffers) even if a session never compacts — export recovers that latent memory.
+- Shares the unified corpus + ranking/dedup machinery from §17 (observations as first-class corpus).
+- Passive mode (`PI_BLACKHOLE_PASSIVE`) remains the opt-out for users who don't want the pipeline cost at all.
+
+### A.3 Tests
+
+- Fixture project sessions + pending.json batch: export output strips prefixes, caps near-identical observations at 2–3, boosts recurring insights, and is valid markdown.
