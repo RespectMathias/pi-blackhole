@@ -244,6 +244,69 @@ describe("Blackhole inline compaction adapter", () => {
     expect(session.originalAbortCalls).toBe(0);
   });
 
+  it("ignores an unpaired tool call from a superseded assistant turn", async () => {
+    const SessionClass = createSessionClass({
+      legacyDisconnect: false,
+      activeMessages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "stale-write",
+              name: "write",
+              arguments: {},
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "current-read",
+              name: "read",
+              arguments: {},
+            },
+          ],
+        },
+        { role: "toolResult", toolCallId: "current-read", content: [] },
+      ],
+    });
+    installInlineCompactionAdapter({ sessionClass: SessionClass as never });
+    const session = new SessionClass();
+    session._bindExtensionCore({});
+
+    await expect(
+      compactInlineAtTurnBoundary(session.sessionManager),
+    ).resolves.toMatchObject({ summary: "summary" });
+    expect(session.compactCalls).toBe(1);
+  });
+
+  it("rejects when any call in the latest parallel tool batch is unpaired", async () => {
+    const SessionClass = createSessionClass({
+      legacyDisconnect: false,
+      activeMessages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "read-1", name: "read", arguments: {} },
+            { type: "toolCall", id: "read-2", name: "read", arguments: {} },
+          ],
+        },
+        { role: "toolResult", toolCallId: "read-1", content: [] },
+      ],
+    });
+    installInlineCompactionAdapter({ sessionClass: SessionClass as never });
+    const session = new SessionClass();
+    session._bindExtensionCore({});
+
+    await expect(
+      compactInlineAtTurnBoundary(session.sessionManager),
+    ).rejects.toThrow("tool call is still in flight");
+    expect(session.compactCalls).toBe(0);
+  });
+
   it("passes a later external abort through and cancels the inline summary", async () => {
     let releaseSummary: (() => void) | undefined;
     const summaryGate = new Promise<void>((resolve) => {
