@@ -146,10 +146,15 @@ export class Runtime {
    * Set when handleAgentEnd schedules a wait; cleared on abort, success, or terminal bail.
    * agent_start handlers read this to abort the pending wait when a new turn starts. */
   autoCompactionController: AbortController | null = null;
-  /** Mid-run (turn_end) compaction is suspended after a failed/cancelled attempt
-   * at the current pressure level. Cleared when accumulated tokens drop below
-   * the threshold again (i.e. a compaction ran). Prevents per-turn retry thrash. */
-  midRunCompactionSuspended = false;
+  /** Exponential backoff state for failed/cancelled mid-run compaction attempts.
+   * `retryAfter` gates re-triggering; failures reset when a compaction succeeds,
+   * pressure drops below the threshold, or an auto-compaction completes.
+   * Replaces the earlier permanent-suspension latch (PR #38) so transient
+   * failures self-heal instead of wedging compaction until pressure drops. */
+  midRunCompactionRetry: { failures: number; retryAfter: number } = {
+    failures: 0,
+    retryAfter: 0,
+  };
   resolveFailureNotified = false;
   lastObserverError: string | undefined;
   lastReflectorError: string | undefined;

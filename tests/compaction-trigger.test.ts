@@ -10,7 +10,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { registerCompactionTrigger } from "../src/om/compaction-trigger.js";
+import {
+  recordMidRunFailure,
+  registerCompactionTrigger,
+  resetMidRunRetry,
+} from "../src/om/compaction-trigger.js";
 import {
   compactionEntry,
   textCustomMessage,
@@ -95,7 +99,7 @@ function captureHandler(
     },
     compactInFlight: args.compactInFlight ?? false,
     autoCompactionController: null as AbortController | null,
-    midRunCompactionSuspended: false,
+    midRunCompactionRetry: { failures: 0, retryAfter: 0 },
   };
   registerCompactionTrigger(pi as any, runtime as any, inlineCompact);
   if (!agentEndHandler) throw new Error("agent_end handler was not registered");
@@ -652,9 +656,45 @@ describe("mid-run compaction trigger (turn_end)", () => {
     await turnHandler(turnEnd(), ctx);
 
     expect(runtime.compactInFlight).toBe(false);
-    expect(runtime.midRunCompactionSuspended).toBe(true);
+    expect(runtime.midRunCompactionRetry.failures).toBe(1);
+    expect(runtime.midRunCompactionRetry.retryAfter).toBeGreaterThanOrEqual(
+      Date.now(),
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("retrying in 1s"),
+      "error",
+    );
     expect(ctx.compact).not.toHaveBeenCalled();
     expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("M6a: retries inline compaction once the backoff window has elapsed", async () => {
+    const inlineCompact = vi
+      .fn(async () => {
+        throw new Error("boom");
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error("boom");
+      })
+      .mockImplementation(async () => undefined);
+    const { turnHandler, runtime } = captureHandler(
+      {
+        compactAfterTokens: 3,
+        midRunCompaction: "resume",
+      },
+      inlineCompact,
+    );
+    const ctx = fakeCtx([dueBranch, dueBranch]);
+
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(1);
+
+    // Simulate the backoff window elapsing.
+    runtime.midRunCompactionRetry.retryAfter = Date.now() - 1;
+
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(2);
+    expect(runtime.midRunCompactionRetry.failures).toBe(0);
   });
 
   it("M7: skips when compaction is already in flight", () => {
@@ -807,7 +847,7 @@ describe("mid-run compaction cancellation resilience", () => {
     await turnHandler(turnEnd(), ctx);
 
     expect(runtime.compactInFlight).toBe(false);
-    expect(runtime.midRunCompactionSuspended).toBe(true);
+    expect(runtime.midRunCompactionRetry.failures).toBe(1);
     expect(pi.sendMessage).not.toHaveBeenCalled();
 
     await turnHandler(turnEnd(), ctx);
@@ -828,7 +868,7 @@ describe("mid-run compaction cancellation resilience", () => {
     const ctx = fakeCtx([dueBranch, dueBranch]);
 
     await turnHandler(turnEnd(), ctx);
-    expect(runtime.midRunCompactionSuspended).toBe(true);
+    expect(runtime.midRunCompactionRetry.failures).toBe(1);
 
     handler(agentEnd(), ctx);
 
@@ -842,21 +882,26 @@ describe("mid-run compaction cancellation resilience", () => {
       .fn()
       .mockRejectedValueOnce(new Error("Compaction cancelled"))
       .mockResolvedValue({ summary: "inline summary" });
-    const { turnHandler } = captureHandler(
+    const { turnHandler, runtime } = captureHandler(
       {
         compactAfterTokens: 3,
         midRunCompaction: "resume",
       },
       inlineCompact,
     );
-    // Sequence: due (cancel) → due (suspended) → below (clear) → due (trigger again)
+    // Sequence: due (cancel) → due (backoff) → below (clear) → due (trigger again)
     const ctx = fakeCtx([dueBranch, dueBranch, belowBranch, dueBranch]);
 
     await turnHandler(turnEnd(), ctx);
+    expect(runtime.midRunCompactionRetry.failures).toBe(1);
     await turnHandler(turnEnd(), ctx);
     expect(inlineCompact).toHaveBeenCalledTimes(1);
 
     await turnHandler(turnEnd(), ctx);
+    expect(runtime.midRunCompactionRetry).toEqual({
+      failures: 0,
+      retryAfter: 0,
+    });
     await turnHandler(turnEnd(), ctx);
     expect(inlineCompact).toHaveBeenCalledTimes(2);
   });
@@ -872,5 +917,45 @@ describe("mid-run compaction cancellation resilience", () => {
     ctx.compact.mock.calls[0][0].onError({ message: "Compaction cancelled" });
 
     expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("M18: pause failure records backoff; completion resets it", () => {
+    const { turnHandler, runtime } = captureHandler({
+      compactAfterTokens: 3,
+      midRunCompaction: "pause",
+    });
+    const ctx = fakeCtx([dueBranch, dueBranch]);
+
+    turnHandler(turnEnd(), ctx);
+    ctx.compact.mock.calls[0][0].onError({ message: "boom" });
+    expect(runtime.midRunCompactionRetry.failures).toBe(1);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("retrying in 1s"),
+      "error",
+    );
+
+    ctx.compact.mock.calls[0][0].onComplete({});
+    expect(runtime.midRunCompactionRetry).toEqual({
+      failures: 0,
+      retryAfter: 0,
+    });
+  });
+});
+
+describe("mid-run compaction retry math", () => {
+  it("doubles the delay per failure and caps at 30 seconds", () => {
+    const runtime: any = {
+      midRunCompactionRetry: { failures: 0, retryAfter: 0 },
+    };
+    const expectedDelays = [1000, 2000, 4000, 8000, 16000, 30000, 30000];
+    for (const expected of expectedDelays) {
+      const delay = recordMidRunFailure(runtime);
+      expect(delay).toBe(expected);
+    }
+    resetMidRunRetry(runtime);
+    expect(runtime.midRunCompactionRetry).toEqual({
+      failures: 0,
+      retryAfter: 0,
+    });
   });
 });
