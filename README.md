@@ -546,3 +546,13 @@ What blackhole adds and reworks on top:
 ## License
 
 MIT
+
+## Append-only compaction
+
+Set `compactionSummaryMode` to `"append"` to keep automatic Blackhole
+compaction summaries as immutable provider-visible segments. Explicit
+`/blackhole` folds the active chain into one clean segment and starts a new
+chain. The default value is `"default"`.
+
+See [`docs/APPEND_COMPACTION.md`](docs/APPEND_COMPACTION.md) for
+the fallback, branch, observational-memory, and cache-measurement rules.

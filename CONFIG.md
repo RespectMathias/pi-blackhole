@@ -109,7 +109,7 @@ Controls how much of the recent transcript stays *visible* after compaction. Onl
 | Value | Behavior |
 |-------|----------|
 | `"pi-default"` | Use Pi's `firstKeptEntryId` — respects Pi's `keepRecentTokens` (~20k tokens kept). Messages before Pi's cut are compiled into the summary and removed from view. |
-| `"minimal"` | Keep only the last user message. Everything before gets compiled and removed. Same as the original pi-vcc behavior (default for both auto-triggered and manual `/blackhole`). |
+| `"minimal"` | Keep only the last user message, unless Pi provides a later safe split-turn boundary for an oversized current turn. Everything before the chosen boundary gets compiled and removed (default for both auto-triggered and manual `/blackhole`). |
 
 **Visual comparison:**
 
@@ -530,3 +530,13 @@ Float field (must be in `(0, 1]`):
 - **Config file**: `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`
 - **TUI overlay**: `/blackhole settings` (alias: `/blackhole configure`) — opens an interactive overlay with ↑↓ navigation, Enter to toggle, Ctrl+S to save
 - **CLI subcommands**: `/blackhole om-off` / `/blackhole om-on` — toggle memory without editing the file
+
+## Append-only compaction
+
+Set `compactionSummaryMode` to `"append"` to keep automatic Blackhole
+compaction summaries as immutable provider-visible segments. Explicit
+`/blackhole` folds the active chain into one clean segment and starts a new
+chain. The default value is `"default"`.
+
+See [`docs/APPEND_COMPACTION.md`](docs/APPEND_COMPACTION.md) for
+the fallback, branch, observational-memory, and cache-measurement rules.
