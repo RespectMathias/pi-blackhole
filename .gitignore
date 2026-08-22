@@ -28,3 +28,4 @@ tmp/
 .pi/skills/*
 !.pi/skills/lockstep/
 AGENTS.md
+.agent/
