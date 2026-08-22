@@ -112,18 +112,21 @@ export function collectActiveSegments(
   return { ok: false, reason: "missing-chain-start" };
 }
 
-/** Map the exact message objects selected by buildOwnCut back to real session IDs. */
+/**
+ * Map selected session entry ids back to the covered branch window.
+ * Matching is id-based so coverage survives serialization, cloning, or reloads.
+ */
 export function coverageForMessages(
   branchEntries: SessionEntryLike[],
-  messages: unknown[],
+  selectedIds: string[],
   firstKeptEntryId: string,
 ): PiVccSegmentCoverage | undefined {
-  if (messages.length === 0) return undefined;
-  const selected = new Set(messages);
+  if (selectedIds.length === 0) return undefined;
+  const wanted = new Set(selectedIds);
   const covered = branchEntries.filter(
-    (entry) => entry.type === "message" && selected.has(entry.message),
+    (entry) => entry.type === "message" && entry.id && wanted.has(entry.id),
   );
-  if (covered.length !== messages.length) return undefined;
+  if (covered.length !== wanted.size) return undefined;
   const first = covered[0]?.id;
   const last = covered[covered.length - 1]?.id;
   if (!first || !last) return undefined;

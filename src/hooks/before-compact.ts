@@ -132,7 +132,14 @@ interface EntryWithMessage {
 export type OwnCutCancelReason = "no_live_messages" | "too_few_live_messages";
 
 export type OwnCutResult =
-  | { ok: true; messages: any[]; firstKeptEntryId: string; compactAll: boolean }
+  | {
+      ok: true;
+      messages: any[];
+      /** Session entry ids backing `messages`, in the same order. */
+      selectedIds: string[];
+      firstKeptEntryId: string;
+      compactAll: boolean;
+    }
   | { ok: false; reason: OwnCutCancelReason };
 
 export function buildOwnCut(
@@ -210,6 +217,7 @@ export function buildOwnCut(
         return {
           ok: true,
           messages: liveMessages.slice(0, liveCutIdx).map((e) => e.message),
+          selectedIds: liveMessages.slice(0, liveCutIdx).map((e) => e.entry.id),
           firstKeptEntryId: piFirstKeptEntryId,
           compactAll: false,
         };
@@ -254,6 +262,9 @@ export function buildOwnCut(
               messages: liveMessages
                 .slice(0, resolvedLiveIdx)
                 .map((e) => e.message),
+              selectedIds: liveMessages
+                .slice(0, resolvedLiveIdx)
+                .map((e) => e.entry.id),
               firstKeptEntryId: resolvedId,
               compactAll: false,
             };
@@ -304,6 +315,7 @@ export function buildOwnCut(
     return {
       ok: true,
       messages: liveMessages.map((e) => e.message),
+      selectedIds: liveMessages.map((e) => e.entry.id),
       firstKeptEntryId: "",
       compactAll: true,
     };
@@ -312,6 +324,7 @@ export function buildOwnCut(
   return {
     ok: true,
     messages: liveMessages.slice(0, cutIdx).map((e) => e.message),
+    selectedIds: liveMessages.slice(0, cutIdx).map((e) => e.entry.id),
     firstKeptEntryId: liveMessages[cutIdx].entry.id,
     compactAll: false,
   };
@@ -520,6 +533,7 @@ export const registerBeforeCompactHook = (
     });
 
     const agentMessages = ownCut.messages;
+    const agentSelectedIds = ownCut.selectedIds;
     const firstKeptEntryId = ownCut.firstKeptEntryId;
     const messages = convertToLlm(agentMessages);
 
@@ -686,7 +700,7 @@ export const registerBeforeCompactHook = (
     if (omRuntime.config.compactionSummaryMode === "append") {
       const currentCoverage = coverageForMessages(
         branchEntries as any[],
-        agentMessages,
+        agentSelectedIds,
         firstKeptEntryId,
       );
       const aggregateSummary = stripRecallNotes(stripOMContent(summary)).trim();

@@ -26,6 +26,7 @@ describe("buildOwnCut", () => {
       if (res.ok) {
         expect(res.firstKeptEntryId).toBe("3");
         expect(res.messages).toHaveLength(2); // msg 1 and 2
+        expect(res.selectedIds).toEqual(["1", "2"]);
         expect(res.compactAll).toBe(false);
       }
     });

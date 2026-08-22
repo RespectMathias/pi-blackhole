@@ -50,21 +50,32 @@ const build = (overrides: Record<string, unknown> = {}) =>
   });
 
 describe("append compaction chain", () => {
-  it("maps selected messages to real session entry ids", () => {
+  it("maps selected entry ids to real session entry ids without object identity", () => {
     const m1 = { role: "user", content: "a" };
     const m2 = { role: "assistant", content: "b" };
     const branch = [
-      { id: "m1", type: "message", message: m1 },
-      { id: "m2", type: "message", message: m2 },
+      { id: "m1", type: "message", message: structuredClone(m1) },
+      { id: "m2", type: "message", message: structuredClone(m2) },
       { id: "m3", type: "message", message: { role: "user", content: "tail" } },
     ];
 
-    expect(coverageForMessages(branch, [m1, m2], "m3")).toEqual({
+    expect(coverageForMessages(branch, ["m1", "m2"], "m3")).toEqual({
       firstCoveredEntryId: "m1",
       lastCoveredEntryId: "m2",
       firstKeptEntryId: "m3",
       sourceMessageCount: 2,
     });
+  });
+
+  it("rejects coverage when a selected id is missing from the branch", () => {
+    const branch = [
+      { id: "m1", type: "message", message: { role: "user", content: "a" } },
+      { id: "m3", type: "message", message: { role: "user", content: "tail" } },
+    ];
+    expect(
+      coverageForMessages(branch, ["m1", "missing"], "m3"),
+    ).toBeUndefined();
+    expect(coverageForMessages(branch, [], "m3")).toBeUndefined();
   });
 
   it("creates a chain start for the first append compaction", () => {
