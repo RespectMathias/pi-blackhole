@@ -6,6 +6,14 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Compaction token counting now uses real provider usage when available.** `rawTokensSinceLastCompaction` reads the last valid assistant message's usage (`calculateContextTokens`: `totalTokens` or the input/output/cache component sum) after the latest compaction entry, plus a chars/4 estimate for trailing entries, instead of estimating the whole window from characters. Chars/4 remains the fallback for sessions without usage data. Error/aborted assistant turns are never used as baselines; usage from before the latest compaction is ignored (it reflects the pre-compaction context). Approach from tavasti@360f24a (pi-vcc upstream PR #40); hardened implementation ported from plan-01 of the token-rework work.
+
+---
+
 ## [0.4.6] - 2026-08-14
 
 ### Added

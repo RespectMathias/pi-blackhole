@@ -10,6 +10,7 @@ import {
   earlierCoverageMarkerId,
   entryIndexById,
   isSourceEntry,
+  lastValidUsageIndex,
   latestCoverageIndex,
   latestCoverageMarkerId,
   rawTokensAfterIndex,
@@ -17,6 +18,7 @@ import {
   rawTokensSinceLastCompaction,
   rawTokensSinceObservationCoverage,
   rawTokensSinceReflectionCoverage,
+  realContextTokens,
 } from "../src/om/ledger/index.js";
 import {
   V3_OBSERVATIONS_DROPPED,
@@ -28,6 +30,7 @@ import {
   observationsDroppedEntry,
   observationsRecordedEntry,
   oldV2ObservationEntry,
+  rawMessage,
   reflection,
   reflectionsRecordedEntry,
   textCustomMessage,
@@ -193,5 +196,131 @@ describe("session-ledger V3 progress helpers", () => {
     ];
 
     expect(rawTokensSinceLastCompaction(entries)).toBe(3); // raw-1 + raw-2 from live tail starting at firstKeptEntryId
+  });
+});
+
+describe("usage-aware progress helpers (plan-01 port)", () => {
+  function assistantEntry(
+    id: string,
+    text: string,
+    usageTokens: number,
+    stopReason = "stop",
+  ) {
+    return rawMessage(id, text, {
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        stopReason,
+        usage: {
+          input: Math.floor(usageTokens / 2),
+          output: Math.ceil(usageTokens / 2),
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: usageTokens,
+        },
+      },
+    } as never);
+  }
+
+  function userEntry(id: string, text: string) {
+    return rawMessage(id, text);
+  }
+
+  describe("lastValidUsageIndex", () => {
+    it("finds the last valid usage at or before an index", () => {
+      const entries = [
+        assistantEntry("a1", "one", 100),
+        userEntry("u1", "two"),
+        assistantEntry("a2", "three", 200),
+        userEntry("u2", "four"),
+      ];
+      expect(lastValidUsageIndex(entries, 3)).toBe(2);
+      expect(lastValidUsageIndex(entries, 1)).toBe(0);
+      expect(lastValidUsageIndex(entries, 0)).toBe(0);
+    });
+
+    it("skips error and aborted assistant messages", () => {
+      const entries = [
+        assistantEntry("a1", "one", 100),
+        assistantEntry("a2", "two", 200, "error"),
+        assistantEntry("a3", "three", 300, "aborted"),
+      ];
+      expect(lastValidUsageIndex(entries, 2)).toBe(0);
+      expect(lastValidUsageIndex(entries, 1)).toBe(0);
+    });
+
+    it("returns -1 when nothing is usable", () => {
+      const entries = [userEntry("u1", "one"), userEntry("u2", "two")];
+      expect(lastValidUsageIndex(entries, 1)).toBe(-1);
+      expect(lastValidUsageIndex([], -1)).toBe(-1);
+    });
+  });
+
+  describe("realContextTokens", () => {
+    it("sums the last valid usage plus trailing estimate when no compaction", () => {
+      const entries = [
+        userEntry("u1", "aaaa"), // 1 token, before usage
+        assistantEntry("a1", "one", 100),
+        userEntry("u2", "bbbbbbbb"), // 2 tokens after usage
+      ];
+      expect(realContextTokens(entries)).toBe(102);
+    });
+
+    it("anchors strictly after the latest compaction entry", () => {
+      const entries = [
+        assistantEntry("a-pre", "pre", 999), // pre-compaction usage ignored
+        compactionEntry("cmp-1", { firstKeptEntryId: "a-pre" }),
+        userEntry("u1", "aaaa"),
+        assistantEntry("a-post", "post", 50),
+        userEntry("u2", "bbbbbbbb"),
+      ];
+      expect(realContextTokens(entries)).toBe(52);
+    });
+
+    it("returns undefined with a compaction and no post-compaction assistant", () => {
+      const entries = [
+        assistantEntry("a-pre", "pre", 999),
+        compactionEntry("cmp-1", { firstKeptEntryId: "a-pre" }),
+        userEntry("u1", "after"),
+      ];
+      expect(realContextTokens(entries)).toBeUndefined();
+    });
+
+    it("returns undefined when only error/aborted assistant usage exists", () => {
+      const entries = [
+        assistantEntry("a1", "boom", 100, "error"),
+        assistantEntry("a2", "cut", 200, "aborted"),
+      ];
+      expect(realContextTokens(entries)).toBeUndefined();
+    });
+
+    it("returns undefined when no usage exists anywhere", () => {
+      const entries = [userEntry("u1", "one"), userEntry("u2", "two")];
+      expect(realContextTokens(entries)).toBeUndefined();
+    });
+  });
+
+  describe("rawTokensSinceLastCompaction (usage wiring)", () => {
+    it("prefers provider usage plus trailing estimate after a compaction", () => {
+      const entries = [
+        assistantEntry("a-pre", "pre", 999),
+        compactionEntry("cmp-1", { firstKeptEntryId: "a-pre" }),
+        userEntry("u1", "aaaa"),
+        assistantEntry("a-post", "post", 50),
+        userEntry("u2", "bbbbbbbb"),
+      ];
+      expect(rawTokensSinceLastCompaction(entries)).toBe(52);
+    });
+
+    it("falls back to the chars/4 estimate when no valid usage exists", () => {
+      const entries = [
+        compactionEntry("cmp-1", { firstKeptEntryId: "raw-1" }),
+        textCustomMessage("raw-1", "abcd"),
+        textCustomMessage("raw-2", "efgh"),
+      ];
+      expect(rawTokensSinceLastCompaction(entries)).toBe(
+        rawTokensAfterIndex(entries, 0),
+      );
+    });
   });
 });
