@@ -433,4 +433,110 @@ describe("append compaction chain", () => {
       }),
     ).toThrow(/previous complete fallback summary/);
   });
+
+  const legacyDetails = () => ({
+    compactor: "blackhole" as const,
+    version: 1 as const,
+    sections: ["Goal"],
+    sourceMessageCount: 2,
+    previousSummaryUsed: false,
+  });
+
+  it("marks one rebase after several legacy compactions with the immediate latest id", () => {
+    const branch = [
+      compactionEntry("legacy-1", "fallback 1", legacyDetails(), 5),
+      compactionEntry("legacy-2", "fallback 2", legacyDetails(), 10),
+    ];
+    const details = build({ branchEntries: branch, previousSummaryUsed: true });
+
+    expect(details.chainStart).toBe(true);
+    expect(details.segment.sequence).toBe(1);
+    expect(details.segment.coverage.includesLegacySummary).toBe(true);
+    expect(details.segment.coverage.rebasedFromCompactionId).toBe("legacy-2");
+  });
+
+  it("keeps legacy provenance when a marked chain is manually rebased", () => {
+    const legacy = compactionEntry("legacy", "fallback", legacyDetails(), 5);
+    const s1 = build({ branchEntries: [legacy], previousSummaryUsed: true });
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const s2 = build({
+      branchEntries: [cs1],
+      freshSummary: "[Goal]\nsecond delta",
+      aggregateSummary: "[Goal]\nstate two",
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+    });
+    const cs2 = compactionEntry("cs2", "fallback s2", s2, 20);
+
+    const rebased = build({
+      branchEntries: [cs1, cs2],
+      manualRebase: true,
+      aggregateSummary: "[Goal]\nclean state",
+      currentCoverage: coverage("m5", "m6", "", 2),
+      previousSummaryUsed: true,
+    });
+
+    expect(rebased.chainStart).toBe(true);
+    expect(rebased.segment.coverage.includesLegacySummary).toBe(true);
+    expect(rebased.segment.coverage.rebasedFromCompactionId).toBe("legacy");
+    expect(rebased.segment.coverage.sourceMessageCount).toBe(6);
+  });
+
+  it("does not mark a manual rebase of a pure append chain as legacy", () => {
+    const s1 = build();
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const s2 = build({
+      branchEntries: [cs1],
+      freshSummary: "[Goal]\nsecond delta",
+      aggregateSummary: "[Goal]\nstate two",
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+    });
+    const cs2 = compactionEntry("cs2", "fallback s2", s2, 20);
+
+    const rebased = build({
+      branchEntries: [cs1, cs2],
+      manualRebase: true,
+      aggregateSummary: "[Goal]\nclean state",
+      currentCoverage: coverage("m5", "m6", "", 2),
+      previousSummaryUsed: true,
+    });
+
+    expect(rebuilt(rebased).includesLegacySummary).toBeUndefined();
+    expect(rebuilt(rebased).rebasedFromCompactionId).toBeUndefined();
+  });
+
+  it("ignores an orphaned append chain below a later legacy compaction", () => {
+    const orphan = build();
+    const cOrphan = compactionEntry("orphan", "fallback o", orphan, 10);
+    const legacy = compactionEntry(
+      "legacy-late",
+      "fallback late",
+      legacyDetails(),
+      20,
+    );
+
+    const details = build({
+      branchEntries: [cOrphan, legacy],
+      previousSummaryUsed: true,
+    });
+
+    expect(details.chainStart).toBe(true);
+    expect(details.segment.coverage.rebasedFromCompactionId).toBe(
+      "legacy-late",
+    );
+    expect(details.segment.coverage.sourceMessageCount).toBe(2);
+  });
+
+  it("marks an inherited off-chain summary as legacy when the branch has no compaction", () => {
+    const details = build({ previousSummaryUsed: true });
+
+    expect(details.chainStart).toBe(true);
+    expect(details.segment.coverage.includesLegacySummary).toBe(true);
+    expect(details.segment.coverage.rebasedFromCompactionId).toBeUndefined();
+    expect(details.segment.summary).toContain("legacySummary=true");
+  });
 });
+
+const rebuilt = (details: ReturnType<typeof buildAppendOnlyDetails>) =>
+  details.segment.coverage;

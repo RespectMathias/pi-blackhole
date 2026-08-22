@@ -139,6 +139,7 @@ const mergeRebaseCoverage = (
   activeSegments: ActiveSegment[],
   current: PiVccSegmentCoverage,
   legacyCompactionId?: string,
+  markLegacy: boolean = Boolean(legacyCompactionId),
 ): PiVccSegmentCoverage => {
   const firstPrior = activeSegments[0]?.segment.coverage;
   const priorCount = activeSegments.reduce(
@@ -158,9 +159,7 @@ const mergeRebaseCoverage = (
     lastCoveredEntryId: current.lastCoveredEntryId,
     firstKeptEntryId: current.firstKeptEntryId,
     sourceMessageCount: priorCount + current.sourceMessageCount,
-    ...(inheritedLegacy || legacyCompactionId
-      ? { includesLegacySummary: true }
-      : {}),
+    ...(inheritedLegacy || markLegacy ? { includesLegacySummary: true } : {}),
     ...(inheritedLegacyId || legacyCompactionId
       ? {
           rebasedFromCompactionId: inheritedLegacyId ?? legacyCompactionId,
@@ -247,14 +246,19 @@ export function buildAppendOnlyDetails(
 
   if (mustRebase) {
     const activeSegments = chain.ok ? chain.segments : [];
+    // A summary inherited from off-chain state (fork/branch switch, or a legacy
+    // compaction outside the version-2 chain) must brand the new chain start,
+    // even when no on-branch compaction entry exists to reference by id.
+    const inheritedOffChain = !chain.ok && input.previousSummaryUsed;
     const legacyCompactionId =
-      !chain.ok && input.previousSummaryUsed && latestCompaction?.id
+      inheritedOffChain && latestCompaction?.id
         ? latestCompaction.id
         : undefined;
     const coverage = mergeRebaseCoverage(
       activeSegments,
       input.currentCoverage,
       legacyCompactionId,
+      inheritedOffChain,
     );
     segment = createSegment(
       1,
