@@ -32,6 +32,7 @@ import {
 } from "../om/ledger/index.js";
 import type { Runtime } from "../om/runtime.js";
 import { debugLog } from "../om/debug-log.js";
+import { effectiveContextWindow } from "../om/model-budget.js";
 import { configFileNeedsMigration } from "../core/unified-config.js";
 
 export const PI_VCC_COMPACT_INSTRUCTION = "__pi_vcc__";
@@ -739,6 +740,9 @@ export const registerBeforeCompactHook = (
             tokensBefore: preparation.tokensBefore,
             sections: legacyDetails.sections,
             previousSummaryUsed: legacyDetails.previousSummaryUsed,
+            contextWindowTokens: ctx.model
+              ? effectiveContextWindow(ctx.model)
+              : undefined,
           });
         } catch (error) {
           warnAppendFallback(

@@ -4,6 +4,8 @@ import {
   buildAppendOnlyDetails,
   collectActiveSegments,
   coverageForMessages,
+  estimateChainTokens,
+  MAX_CHAIN_WINDOW_RATIO,
   projectAppendOnlyContext,
 } from "../src/core/compaction-chain.js";
 import { isPiVccCompactionDetailsV2 } from "../src/details.js";
@@ -546,6 +548,68 @@ describe("append compaction chain", () => {
     expect(details.segment.coverage.includesLegacySummary).toBe(true);
     expect(details.segment.coverage.rebasedFromCompactionId).toBeUndefined();
     expect(details.segment.summary).toContain("legacySummary=true");
+  });
+
+  it("estimates chain size from segment summaries plus incoming content", () => {
+    const s1 = build({ aggregateSummary: "x".repeat(400) });
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const chain = collectActiveSegments([cs1]);
+    expect(chain.ok).toBe(true);
+    if (!chain.ok) return;
+
+    const tokens = estimateChainTokens(
+      chain.segments,
+      "y".repeat(200),
+      "z".repeat(80),
+    );
+    const expectedChars =
+      chain.segments.reduce((total, item) => {
+        return total + item.segment.summary.length;
+      }, 0) +
+      200 +
+      80;
+    expect(tokens).toBe(Math.ceil(expectedChars / 4));
+  });
+
+  it("auto-rebases instead of appending when the projected chain exceeds half the window", () => {
+    const s1 = build({ aggregateSummary: "x".repeat(600) });
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const chain = collectActiveSegments([cs1]);
+    expect(chain.ok).toBe(true);
+    if (!chain.ok) return;
+    const fresh = "[Goal]\nnext delta";
+    const trailing = "recall\n\ncurrent OM";
+    const projected = estimateChainTokens(chain.segments, fresh, trailing);
+    // Window where the projection sits exactly at half → appending is allowed.
+    const tightWindow = Math.ceil(projected / MAX_CHAIN_WINDOW_RATIO);
+
+    // One token below → the projection passes half the window → fold instead.
+    const rebased = build({
+      branchEntries: [cs1],
+      freshSummary: fresh,
+      aggregateSummary: "[Goal]\nfolded state",
+      trailingSummary: trailing,
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+      contextWindowTokens: tightWindow - 1,
+    });
+
+    expect(rebased.chainStart).toBe(true);
+    expect(rebased.segment.sequence).toBe(1);
+    expect(rebased.segment.summary).toContain("folded state");
+
+    // Exactly at the boundary → still appends.
+    const appended = build({
+      branchEntries: [cs1],
+      freshSummary: fresh,
+      aggregateSummary: "[Goal]\nfolded state",
+      trailingSummary: trailing,
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+      contextWindowTokens: tightWindow,
+    });
+    expect(appended.chainStart).toBe(false);
+    expect(appended.segment.sequence).toBe(2);
   });
 });
 

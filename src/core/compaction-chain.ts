@@ -43,6 +43,24 @@ export interface BuildAppendOnlyDetailsInput {
   tokensBefore: number;
   sections: string[];
   previousSummaryUsed: boolean;
+  /** Session model context window; when set, an overgrown chain auto-rebases. */
+  contextWindowTokens?: number;
+}
+
+/** Auto-rebase once the projected injected chain passes this fraction of the window. */
+export const MAX_CHAIN_WINDOW_RATIO = 0.5;
+
+/** chars/4 estimate of the provider-visible chain plus the incoming segment content. */
+export function estimateChainTokens(
+  segments: ActiveSegment[],
+  freshSummary: string,
+  trailingSummary: string,
+): number {
+  const chars = segments.reduce(
+    (total, item) => total + item.segment.summary.length,
+    0,
+  );
+  return Math.ceil((chars + freshSummary.length + trailingSummary.length) / 4);
 }
 
 export const findLatestCompactionEntry = (
@@ -243,7 +261,16 @@ export function buildAppendOnlyDetails(
     throw new Error(`append chain is invalid: ${chain.reason}`);
   }
 
-  const mustRebase = input.manualRebase || !chain.ok;
+  const chainOvergrown =
+    chain.ok &&
+    input.contextWindowTokens !== undefined &&
+    estimateChainTokens(
+      chain.segments,
+      input.freshSummary,
+      input.trailingSummary,
+    ) > Math.floor(input.contextWindowTokens * MAX_CHAIN_WINDOW_RATIO);
+
+  const mustRebase = input.manualRebase || !chain.ok || chainOvergrown;
   let segment: PiVccSegment;
   let chainStart: boolean;
 
