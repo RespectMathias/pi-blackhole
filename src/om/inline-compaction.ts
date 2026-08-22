@@ -540,9 +540,22 @@ function hasTrailingUnpairedToolCall(messages: unknown[]): boolean {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
 
-    const value = message as { role?: unknown; content?: unknown };
+    const value = message as {
+      role?: unknown;
+      content?: unknown;
+      stopReason?: unknown;
+    };
     if (value.role !== "assistant") continue;
+
+    // A non-array content means the model produced a text response and moved on;
+    // any earlier unpaired tool calls were superseded by this turn.
     if (!Array.isArray(value.content)) return false;
+
+    // Skip aborted/errored turns — Pi drops these from API replay and excludes
+    // their tool calls from pending tracking (see pi-ai `transform-messages.js`).
+    // Only the latest *successful* assistant tool batch can still be in flight.
+    const stopReason = value.stopReason;
+    if (stopReason === "error" || stopReason === "aborted") continue;
 
     const pending = new Set<string>();
     for (const block of value.content) {
