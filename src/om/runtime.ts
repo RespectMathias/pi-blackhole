@@ -160,6 +160,8 @@ export class Runtime {
   compactionStats: CompactionStats | null = null;
   /** Whether the most recent compaction was triggered by /blackhole (vs auto-compact). */
   compactWasPiVcc = false;
+  /** Set after the first append-mode fallback warning; one signal per session. */
+  appendFallbackNotified = false;
   /** In‑memory pipeline cursors — authoritative copy for gating decisions. */
   cursors: PipelineCursors = {};
   /** Session ID for which cursors have been loaded/validated.  Undefined until first load. */

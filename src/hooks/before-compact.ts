@@ -696,6 +696,15 @@ export const registerBeforeCompactHook = (
     }
 
     const fallbackSummary = summary + "\n\n" + omContent;
+    const warnAppendFallback = (reason: string) => {
+      trace("before_compact.append_fallback", { reason });
+      if (omRuntime.appendFallbackNotified) return;
+      omRuntime.appendFallbackNotified = true;
+      ctx?.ui?.notify?.(
+        `pi-blackhole: append summary mode fell back to a complete replacement summary (${reason}); run /blackhole to rebase back into append segments`,
+        "warning",
+      );
+    };
     let details: PiVccCompactionDetails = legacyDetails;
     if (omRuntime.config.compactionSummaryMode === "append") {
       const currentCoverage = coverageForMessages(
@@ -732,19 +741,18 @@ export const registerBeforeCompactHook = (
             previousSummaryUsed: legacyDetails.previousSummaryUsed,
           });
         } catch (error) {
-          trace("before_compact.append_fallback", {
-            reason: "invalid-chain",
-            error: error instanceof Error ? error.message : String(error),
-          });
+          warnAppendFallback(
+            `invalid-chain: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       } else {
-        trace("before_compact.append_fallback", {
-          reason: !currentCoverage
+        warnAppendFallback(
+          !currentCoverage
             ? "coverage"
             : !hasCompletePreviousSummary
               ? "missing-previous-summary"
               : "empty-summary",
-        });
+        );
       }
     }
     return {

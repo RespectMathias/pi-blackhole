@@ -39,6 +39,7 @@ const createHarness = (configOverrides: Record<string, unknown> = {}) => {
     config,
     compactWasPiVcc: false,
     compactionStats: null,
+    appendFallbackNotified: false,
   };
   const pi = {
     on: (event: string, callback: (event: any, ctx: any) => any) => {
@@ -46,13 +47,15 @@ const createHarness = (configOverrides: Record<string, unknown> = {}) => {
     },
   } as any;
   registerBeforeCompactHook(pi, runtime as any);
+  const ui = { notify: vi.fn() };
   return {
     invoke: (event: any) =>
       handler!(event, {
         cwd: process.cwd(),
         model: { provider: "anthropic", api: "messages", id: "test" },
-        ui: { notify: vi.fn() },
+        ui,
       }),
+    ui,
   };
 };
 
@@ -73,6 +76,45 @@ const event = (
 });
 
 describe("append before-compact integration", () => {
+  it("warns once when append mode falls back to the rewrite summary", () => {
+    const { invoke, ui } = createHarness();
+    const firstBranch = [
+      msg("m1", "user", "first goal"),
+      msg("m2", "assistant", "first result"),
+      msg("m3", "user", "keep one"),
+      msg("m4", "assistant", "tail reply"),
+    ];
+    const first = invoke(event(firstBranch));
+    expect(isPiVccCompactionDetailsV2(first.compaction.details)).toBe(true);
+    expect(ui.notify).not.toHaveBeenCalled();
+
+    // Missing preparation.previousSummary with a prior compaction on the
+    // branch → "missing-previous-summary" fallback path.
+    const c1 = {
+      id: "c1",
+      type: "compaction",
+      timestamp: 10,
+      ...first.compaction,
+    };
+    const secondBranch = [
+      c1,
+      msg("m3", "user", "keep one"),
+      msg("m4", "assistant", "tail reply"),
+      msg("m5", "user", "keep two"),
+      msg("m6", "assistant", "tail two"),
+    ];
+    const second = invoke(event(secondBranch));
+    expect(isPiVccCompactionDetailsV2(second.compaction.details)).toBe(false);
+    expect(ui.notify).toHaveBeenCalledTimes(1);
+    expect(ui.notify.mock.calls[0][0]).toContain("append");
+    expect(ui.notify.mock.calls[0][1]).toBe("warning");
+
+    // A further fallback stays silent — one signal per session.
+    const third = invoke(event(secondBranch));
+    expect(isPiVccCompactionDetailsV2(third.compaction.details)).toBe(false);
+    expect(ui.notify).toHaveBeenCalledTimes(1);
+  });
+
   it("appends automatically and rebases explicit /blackhole", () => {
     const { invoke } = createHarness();
     const firstBranch = [
