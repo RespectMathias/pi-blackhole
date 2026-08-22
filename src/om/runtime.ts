@@ -155,6 +155,12 @@ export class Runtime {
     failures: 0,
     retryAfter: 0,
   };
+  /** Set when the host inline-compaction adapter reports permanent
+   * unavailability (pi version lacks the API). Mirrors the structural
+   * shape of InlineCompactionAdapterStatus without importing it. */
+  inlineCompactionAdapterStatus?: { supported: boolean; reason?: string };
+  /** One-shot guard for the settled-fallback user notification. */
+  inlineCompactionWarningEmitted = false;
   resolveFailureNotified = false;
   lastObserverError: string | undefined;
   lastReflectorError: string | undefined;

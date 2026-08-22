@@ -10,6 +10,7 @@
 
 ### Changed
 - Mid-run compaction failures now use exponential backoff (1s doubling to a 30s cap) instead of suspending retries until context pressure drops. A single transient failure no longer wedges auto-compaction for the rest of the pressure episode; failure notices now include "retrying in Xs".
+- Permanent inline-compaction unavailability (pi version lacks the adapter API) is now classified once and reported as a single warning ("using settled compaction fallback") instead of surfacing as a retryable failure every episode. With `midRunCompaction: resume`, later turn-end attempts skip the adapter immediately, and agent start warns once if resume mode is configured against a known-unsupported adapter.
 
 ### Changed
 

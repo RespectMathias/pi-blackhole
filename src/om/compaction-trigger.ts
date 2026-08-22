@@ -5,6 +5,7 @@ import { debugLog } from "./debug-log.js";
 import { RETRYABLE_ERROR_RE } from "./retryable-error.js";
 import {
   compactInlineAtTurnBoundary,
+  InlineCompactionUnavailableError,
   type InlineCompaction,
 } from "./inline-compaction.js";
 
@@ -96,7 +97,7 @@ export function registerCompactionTrigger(
   runtime: Runtime,
   inlineCompact: InlineCompaction = compactInlineAtTurnBoundary,
 ): void {
-  pi.on("agent_start", () => {
+  pi.on("agent_start", (_event: any, ctx: any) => {
     // Reset the info gate — allow one info notification during the new turn.
     runtime.resetInfoGate();
 
@@ -107,6 +108,22 @@ export function registerCompactionTrigger(
       runtime.autoCompactionController.abort();
       runtime.autoCompactionController = null;
       runtime.compactInFlight = false;
+    }
+
+    // Resume mode was configured but the adapter is known-permanently
+    // unavailable — surface that once so the setting isn't silently inert.
+    if (
+      runtime.config.midRunCompaction === "resume" &&
+      runtime.inlineCompactionAdapterStatus?.supported === false &&
+      !runtime.inlineCompactionWarningEmitted
+    ) {
+      runtime.inlineCompactionWarningEmitted = true;
+      notifySafely(
+        ctx?.hasUI ?? false,
+        ctx?.ui,
+        `Observational memory: mid-run compaction (resume) unavailable: ${runtime.inlineCompactionAdapterStatus.reason}; using settled compaction fallback`,
+        "warning",
+      );
     }
   });
 
@@ -180,6 +197,19 @@ async function handleTurnEnd(
     });
     return;
   }
+  if (
+    mode === "resume" &&
+    runtime.inlineCompactionAdapterStatus?.supported === false
+  ) {
+    // The adapter already reported permanent unavailability — don't retry
+    // a condition that cannot change mid-session.
+    dbg("compaction_trigger.turn_end.skip", {
+      reason: "inline_adapter_unsupported",
+      tokens,
+      reason_detail: runtime.inlineCompactionAdapterStatus.reason,
+    });
+    return;
+  }
 
   const hasUI = ctx.hasUI;
   const ui = ctx.ui;
@@ -208,8 +238,29 @@ async function handleTurnEnd(
       );
     } catch (error) {
       if (isStaleExtensionContextError(error)) throw error;
-      const delay = recordMidRunFailure(runtime);
       const message = getErrorMessage(error);
+      if (error instanceof InlineCompactionUnavailableError) {
+        // Permanent: this pi version doesn't expose the inline adapter API.
+        // Classify once instead of cycling through the retry/backoff path.
+        runtime.inlineCompactionAdapterStatus = {
+          supported: false,
+          reason: message,
+        };
+        dbg("compaction_trigger.turn_end.inline_adapter_unavailable", {
+          message,
+        });
+        if (!runtime.inlineCompactionWarningEmitted) {
+          runtime.inlineCompactionWarningEmitted = true;
+          notifySafely(
+            hasUI,
+            ui,
+            `Observational memory: ${message}; using settled compaction fallback`,
+            "warning",
+          );
+        }
+        return;
+      }
+      const delay = recordMidRunFailure(runtime);
       dbg("compaction_trigger.turn_end.inline_error", {
         message,
         failures: runtime.midRunCompactionRetry.failures,

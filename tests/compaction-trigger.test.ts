@@ -15,6 +15,7 @@ import {
   registerCompactionTrigger,
   resetMidRunRetry,
 } from "../src/om/compaction-trigger.js";
+import { InlineCompactionUnavailableError } from "../src/om/inline-compaction.js";
 import {
   compactionEntry,
   textCustomMessage,
@@ -100,6 +101,9 @@ function captureHandler(
     compactInFlight: args.compactInFlight ?? false,
     autoCompactionController: null as AbortController | null,
     midRunCompactionRetry: { failures: 0, retryAfter: 0 },
+    inlineCompactionAdapterStatus: undefined as
+      { supported: boolean; reason?: string } | undefined,
+    inlineCompactionWarningEmitted: false,
   };
   registerCompactionTrigger(pi as any, runtime as any, inlineCompact);
   if (!agentEndHandler) throw new Error("agent_end handler was not registered");
@@ -957,5 +961,84 @@ describe("mid-run compaction retry math", () => {
       failures: 0,
       retryAfter: 0,
     });
+  });
+});
+
+describe("inline adapter classification", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const unavailableInline = () =>
+    vi.fn(async () => {
+      throw new InlineCompactionUnavailableError(
+        "pi 0.80.1 lacks inline compaction API",
+      );
+    });
+
+  it("marks the adapter unsupported and warns once instead of recording backoff", async () => {
+    const { turnHandler, runtime, inlineCompact } = captureHandler(
+      { midRunCompaction: "resume" },
+      unavailableInline(),
+    );
+    const ctx = fakeCtx([dueBranch]);
+
+    await turnHandler(turnEnd(), ctx);
+
+    expect(runtime.inlineCompactionAdapterStatus).toEqual({
+      supported: false,
+      reason: "pi 0.80.1 lacks inline compaction API",
+    });
+    // One info (threshold reached) + one warning (settled fallback).
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(2);
+    const warnCall = ctx.ui.notify.mock.calls.find(
+      (call) => call[1] === "warning",
+    );
+    expect(warnCall?.[0]).toContain("using settled compaction fallback");
+    // Permanent condition — not a retryable failure.
+    expect(runtime.midRunCompactionRetry.failures).toBe(0);
+
+    // Later turns skip the adapter entirely and stay silent.
+    await turnHandler(turnEnd(), ctx);
+    expect(inlineCompact).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns once at agent_start for configured resume with a known-bad adapter", () => {
+    const { startHandler, runtime } = captureHandler({
+      midRunCompaction: "resume",
+    });
+    runtime.inlineCompactionAdapterStatus = {
+      supported: false,
+      reason: "pi lacks API",
+    };
+    const ctx = fakeCtx([belowBranch]);
+
+    startHandler(undefined, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify.mock.calls[0][0]).toContain("pi lacks API");
+    expect(ctx.ui.notify.mock.calls[0][1]).toBe("warning");
+
+    startHandler(undefined, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not warn at agent_start when mode is not resume or adapter is fine", () => {
+    const { startHandler, runtime } = captureHandler({
+      midRunCompaction: "pause",
+    });
+    runtime.inlineCompactionAdapterStatus = { supported: false };
+    const ctx = fakeCtx([belowBranch]);
+    startHandler(undefined, ctx);
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+
+    const ok = captureHandler({ midRunCompaction: "resume" });
+    ok.runtime.inlineCompactionAdapterStatus = { supported: true };
+    ok.startHandler(undefined, fakeCtx([belowBranch]));
+    expect(ok.runtime.config.midRunCompaction).toBe("resume");
   });
 });
