@@ -23,6 +23,7 @@ The config file must contain **valid JSON**. A trailing comma, partial write, or
   "compactionEngine": "blackhole", // "blackhole" | "pi-default"
   "tailBehavior": "minimal",   // "pi-default" | "minimal"
   "midRunCompaction": "off",    // "resume" | "pause" | "off" (default: off)
+  "compactionSummaryMode": "default", // "default" | "append" (default: "default")
   "compactAfterTokens": 81000,    // Token threshold for auto-compaction
 
   // ── Observational Memory ──
@@ -109,7 +110,7 @@ Controls how much of the recent transcript stays *visible* after compaction. Onl
 | Value | Behavior |
 |-------|----------|
 | `"pi-default"` | Use Pi's `firstKeptEntryId` — respects Pi's `keepRecentTokens` (~20k tokens kept). Messages before Pi's cut are compiled into the summary and removed from view. |
-| `"minimal"` | Keep only the last user message. Everything before gets compiled and removed. Same as the original pi-vcc behavior (default for both auto-triggered and manual `/blackhole`). |
+| `"minimal"` | Keep only the last user message, unless Pi provides a later safe split-turn boundary for an oversized current turn. Everything before the chosen boundary gets compiled and removed (default for both auto-triggered and manual `/blackhole`). |
 
 **Visual comparison:**
 
@@ -404,6 +405,7 @@ Boolean parsing accepts `1`, `true`, `yes`, `on` (and `0`, `false`, `no`, `off`)
 | `PI_BLACKHOLE_COMPACTION` | `compaction` (`auto` \| `manual` \| `off`) | `PI_BLACKHOLE_COMPACTION=manual` |
 | `PI_BLACKHOLE_COMPACTION_ENGINE` | `compactionEngine` (`blackhole` \| `pi-default`) | `PI_BLACKHOLE_COMPACTION_ENGINE=pi-default` |
 | `PI_BLACKHOLE_MID_RUN_COMPACTION` | `midRunCompaction` (`resume` \| `pause` \| `off`) | `PI_BLACKHOLE_MID_RUN_COMPACTION=resume` |
+| `PI_BLACKHOLE_COMPACTION_SUMMARY_MODE` | `compactionSummaryMode` (`default` \| `append`) | `PI_BLACKHOLE_COMPACTION_SUMMARY_MODE=append` |
 
 ### Passive mode (legacy)
 
@@ -530,3 +532,32 @@ Float field (must be in `(0, 1]`):
 - **Config file**: `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`
 - **TUI overlay**: `/blackhole settings` (alias: `/blackhole configure`) — opens an interactive overlay with ↑↓ navigation, Enter to toggle, Ctrl+S to save
 - **CLI subcommands**: `/blackhole om-off` / `/blackhole om-on` — toggle memory without editing the file
+
+### `compactionSummaryMode`
+
+Controls how auto-compaction summaries are stored and presented to the model. Only applies when `compaction: "auto"` and `compactionEngine: "blackhole"`. Explicit `/blackhole` triggers independent of this mode and always folds the chain into a clean segment.
+
+| Value | Behavior |
+|-------|----------|
+| `"default"` | Each auto-compaction replaces the previous summary with a fresh one (rewrite — existing behavior, default). |
+| `"append"` | Each auto-compaction appends one immutable provider-visible segment (`S1 \| S2 \| …`). The model sees all prior compaction segments alongside the current conversation. Every stored summary remains a complete fallback. |
+
+**In `append` mode:**
+- Auto-compactions append a new segment to the chain; earlier segments stay visible to the model.
+- Explicit `/blackhole` rebases the active chain into one clean segment and starts a new chain.
+- Legacy v1 summaries (from before this feature) enter through one marked rebase.
+- When the projected chain passes half of the model's context window, the next auto-compaction folds it back into one segment.
+- A new `context` hook projects segments before each model call and **fails closed to the fallback** on any malformed state.
+- Falls back to rewrite surgery once per session when append mode encounters unsupported state.
+
+**Example:**
+
+```jsonc
+// Default: each compaction rewrites the summary (existing behavior)
+{ "compactionSummaryMode": "default" }
+
+// Append: freeze auto-compaction segments for the model
+{ "compactionSummaryMode": "append" }
+```
+
+See [`docs/APPEND_COMPACTION.md`](docs/APPEND_COMPACTION.md) for the fallback, branch, observational-memory, and cache-measurement rules.
