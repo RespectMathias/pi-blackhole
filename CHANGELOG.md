@@ -6,6 +6,18 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+- Mid-run compaction failures now use exponential backoff (1s doubling to a 30s cap) instead of suspending retries until context pressure drops. A single transient failure no longer wedges auto-compaction for the rest of the pressure episode; failure notices now include "retrying in Xs".
+- Permanent inline-compaction unavailability (pi version lacks the adapter API) is now classified once and reported as a single warning ("using settled compaction fallback") instead of surfacing as a retryable failure every episode. With `midRunCompaction: resume`, later turn-end attempts skip the adapter immediately, and agent start warns once if resume mode is configured against a known-unsupported adapter.
+
+### Changed
+
+- **Compaction token counting now uses real provider usage when available.** `rawTokensSinceLastCompaction` reads the last valid assistant message's usage (`calculateContextTokens`: `totalTokens` or the input/output/cache component sum) after the latest compaction entry, plus a chars/4 estimate for trailing entries, instead of estimating the whole window from characters. Chars/4 remains the fallback for sessions without usage data. Error/aborted assistant turns are never used as baselines; usage from before the latest compaction is ignored (it reflects the pre-compaction context). Approach from tavasti@360f24a (pi-vcc upstream PR #40); hardened implementation ported from plan-01 of the token-rework work.
+
+---
+
 ## [0.4.6] - 2026-08-14
 
 ### Added
@@ -14,8 +26,11 @@
 
 - **All env overrides are visible in the config modal.** `PI_BLACKHOLE_MID_RUN_COMPACTION`, `PI_BLACKHOLE_COMPACTION`, and `PI_BLACKHOLE_COMPACTION_ENGINE` (alongside existing overrides like `PI_BLACKHOLE_SKIP_PROVIDERS` and `PI_BLACKHOLE_PROVIDER_IDLE_TIMEOUT_MS`) now appear in the env tab of the config modal with their current effective values, so you can see at a glance what the environment is contributing.
 
+- **Opt-in append compaction (`compactionSummaryMode`).** New config key (`default` | `append`; `default` is the default) plus `PI_BLACKHOLE_COMPACTION_SUMMARY_MODE` override. In append mode each automatic Blackhole compaction appends one immutable provider-visible segment (`S1 | S2 | …`) while every stored summary stays a complete fallback; `/blackhole` rebases the active chain into one clean segment; a legacy v1 summary enters through one marked rebase. A new `context` hook projects segments before each model call and fails closed to the fallback on any malformed state. When the projected chain passes half of the model's context window, the next automatic compaction folds it back into one segment. See `docs/APPEND_COMPACTION.md`.
+
 ### Changed
 
+- **Minimal tails honor later Pi split-turn boundaries.** An oversized current turn can now be cut at Pi's safe assistant/user boundary instead of being retained whole after compaction.
 - **Config modal migrated to the canonical `pi-base` config-rework surface.** The modal now uses the upstream scope-selector and config-flow, replacing the legacy `openSettingsModal` path. The layer precedence is: global → project → env → session, matching pi-utils behavior.
 
 ### Removed
