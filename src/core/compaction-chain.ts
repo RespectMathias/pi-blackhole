@@ -4,6 +4,7 @@ import type {
   PiVccSegmentCoverage,
 } from "../details.js";
 import { isPiVccCompactionDetailsV2 } from "../details.js";
+import { estimateEntryTokens, getUsageTokens } from "../om/tokens.js";
 
 export interface SessionEntryLike {
   id?: string;
@@ -61,6 +62,84 @@ export function estimateChainTokens(
     0,
   );
   return Math.ceil((chars + freshSummary.length + trailingSummary.length) / 4);
+}
+
+/** Source entry types counted toward context size (mirrors ledger progress). */
+const SOURCE_ENTRY_TYPES = new Set([
+  "message",
+  "custom_message",
+  "branch_summary",
+]);
+
+/**
+ * Project the next provider-visible chain size for the growth governor.
+ *
+ * Anchors on the latest trusted provider usage when a valid assistant
+ * response exists after the newest chain entry: its measured context already
+ * contains every active segment plus system/tool/trailing overhead, so only
+ * the covered range leaving context and the fresh segment entering it are
+ * chars/4-estimated. Falls back to the plain estimate whenever no usable
+ * usage baseline exists or the data is inconsistent.
+ */
+export function projectChainTokens(
+  segments: ActiveSegment[],
+  freshSummary: string,
+  trailingSummary: string,
+  branchEntries: SessionEntryLike[],
+  coverage: Pick<
+    PiVccSegmentCoverage,
+    "firstCoveredEntryId" | "lastCoveredEntryId"
+  >,
+): number {
+  const fallback = estimateChainTokens(segments, freshSummary, trailingSummary);
+  const latestEntry = segments[segments.length - 1]?.entry;
+  if (!latestEntry || segments.length === 0) return fallback;
+
+  let latestIndex = -1;
+  for (let index = branchEntries.length - 1; index >= 0; index -= 1) {
+    if (branchEntries[index] === latestEntry) {
+      latestIndex = index;
+      break;
+    }
+  }
+  if (latestIndex < 0) return fallback;
+
+  let usageTokens: number | undefined;
+  for (let index = branchEntries.length - 1; index > latestIndex; index -= 1) {
+    const candidate = getUsageTokens(branchEntries[index]?.message);
+    if (candidate !== undefined) {
+      usageTokens = candidate;
+      break;
+    }
+  }
+  if (usageTokens === undefined) return fallback;
+
+  let firstIndex = -1;
+  let lastIndex = -1;
+  for (let index = latestIndex + 1; index < branchEntries.length; index += 1) {
+    const id = branchEntries[index]?.id;
+    if (id === coverage.firstCoveredEntryId) firstIndex = index;
+    if (id === coverage.lastCoveredEntryId) lastIndex = index;
+  }
+  if (firstIndex < 0 || lastIndex < firstIndex) return fallback;
+
+  let coveredTokens = 0;
+  for (let index = firstIndex; index <= lastIndex; index += 1) {
+    const entry = branchEntries[index];
+    if (
+      !entry ||
+      typeof entry.type !== "string" ||
+      !SOURCE_ENTRY_TYPES.has(entry.type)
+    ) {
+      continue;
+    }
+    const { type, message, summary } = entry;
+    coveredTokens += estimateEntryTokens({ type, message, summary });
+  }
+  const projected =
+    usageTokens - coveredTokens + Math.ceil(freshSummary.length / 4);
+  if (!Number.isFinite(projected) || projected < 0) return fallback;
+  return projected;
 }
 
 export const findLatestCompactionEntry = (
@@ -141,6 +220,8 @@ export function coverageForMessages(
 ): PiVccSegmentCoverage | undefined {
   if (selectedIds.length === 0) return undefined;
   const wanted = new Set(selectedIds);
+  // Duplicates would silently shrink the matched window — fail closed.
+  if (wanted.size !== selectedIds.length) return undefined;
   const covered = branchEntries.filter(
     (entry) => entry.type === "message" && entry.id && wanted.has(entry.id),
   );
@@ -264,10 +345,12 @@ export function buildAppendOnlyDetails(
   const chainOvergrown =
     chain.ok &&
     input.contextWindowTokens !== undefined &&
-    estimateChainTokens(
+    projectChainTokens(
       chain.segments,
       input.freshSummary,
       input.trailingSummary,
+      input.branchEntries,
+      input.currentCoverage,
     ) > Math.floor(input.contextWindowTokens * MAX_CHAIN_WINDOW_RATIO);
 
   const mustRebase = input.manualRebase || !chain.ok || chainOvergrown;

@@ -53,7 +53,7 @@ export default async (pi: ExtensionAPI) => {
 
   // Pi-vcc: compaction + om injection
   registerBeforeCompactHook(pi, omRuntime); // session_before_compact → pi-vcc + om content
-  registerCompactionContextHook(pi); // context → immutable append segment projection
+  registerCompactionContextHook(pi, omRuntime); // context → immutable append segment projection
 
   // Commands
   registerPiVccCommand(pi, omRuntime); // /pi-vcc (needs runtime for noAutoCompact flush)

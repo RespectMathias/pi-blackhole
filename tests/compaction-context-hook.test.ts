@@ -32,11 +32,14 @@ const branch = [
 describe("append context hook", () => {
   it("replaces the exact fallback with the active immutable chain", () => {
     let handler: ((event: any, ctx: any) => any) | undefined;
-    registerCompactionContextHook({
-      on: (name: string, callback: (event: any, ctx: any) => any) => {
-        if (name === "context") handler = callback;
-      },
-    } as any);
+    registerCompactionContextHook(
+      {
+        on: (name: string, callback: (event: any, ctx: any) => any) => {
+          if (name === "context") handler = callback;
+        },
+      } as any,
+      { config: { debugLog: false }, ensureConfig: () => {} } as any,
+    );
 
     const result = handler!(
       {
@@ -64,11 +67,14 @@ describe("append context hook", () => {
 
   it("returns no override when projection cannot be proved safe", () => {
     let handler: ((event: any, ctx: any) => any) | undefined;
-    registerCompactionContextHook({
-      on: (_name: string, callback: (event: any, ctx: any) => any) => {
-        handler = callback;
-      },
-    } as any);
+    registerCompactionContextHook(
+      {
+        on: (_name: string, callback: (event: any, ctx: any) => any) => {
+          handler = callback;
+        },
+      } as any,
+      { config: { debugLog: false }, ensureConfig: () => {} } as any,
+    );
 
     const result = handler!(
       { messages: [{ role: "compactionSummary", summary: "different" }] },

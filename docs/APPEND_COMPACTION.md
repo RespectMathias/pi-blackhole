@@ -25,4 +25,4 @@ Environment override:
 PI_BLACKHOLE_COMPACTION_SUMMARY_MODE=default|append
 ```
 
-Append-only mode can preserve a longer exact provider-input prefix. It does not guarantee a provider cache hit or reduce logical context size. When the projected injected chain (existing segments plus the incoming segment and trailing note) passes half of the session model's context window, the next automatic compaction folds the chain into one fresh segment instead of appending. Explicit `/blackhole` rebases at any time.
+Append-only mode can preserve a longer exact provider-input prefix. It does not guarantee a provider cache hit or reduce logical context size. When the projected injected chain (existing segments plus the incoming segment and trailing note) passes half of the session model's context window, the next automatic compaction folds the chain into one fresh segment instead of appending. The projection anchors on the latest reported provider usage when a trusted assistant response exists after the newest segment, and estimates from character counts otherwise. Explicit `/blackhole` rebases at any time.

@@ -80,6 +80,15 @@ describe("append compaction chain", () => {
     expect(coverageForMessages(branch, [], "m3")).toBeUndefined();
   });
 
+  it("rejects coverage when selected ids contain duplicates", () => {
+    const branch = [
+      { id: "m1", type: "message", message: { role: "user", content: "a" } },
+      { id: "m2", type: "message", message: { role: "user", content: "b" } },
+      { id: "m3", type: "message", message: { role: "user", content: "tail" } },
+    ];
+    expect(coverageForMessages(branch, ["m1", "m1"], "m3")).toBeUndefined();
+  });
+
   it("creates a chain start for the first append compaction", () => {
     const details = build();
     expect(details.chainStart).toBe(true);
@@ -607,6 +616,128 @@ describe("append compaction chain", () => {
       currentCoverage: coverage("m3", "m4", "tail", 2),
       previousSummaryUsed: true,
       contextWindowTokens: tightWindow,
+    });
+    expect(appended.chainStart).toBe(false);
+    expect(appended.segment.sequence).toBe(2);
+  });
+
+  it("anchors the growth governor on real provider usage newer than the chain", () => {
+    const s1 = build({ aggregateSummary: "x".repeat(600) });
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const chain = collectActiveSegments([cs1]);
+    expect(chain.ok).toBe(true);
+    if (!chain.ok) return;
+    const fresh = "[Goal]\nnext delta";
+    const trailing = "recall\n\ncurrent OM";
+    // A window where the chars/4 estimate stays under half the window.
+    const estimateWindow =
+      Math.ceil(
+        estimateChainTokens(chain.segments, fresh, trailing) /
+          MAX_CHAIN_WINDOW_RATIO,
+      ) + 50;
+
+    const usageEntry = {
+      id: "u1",
+      type: "message",
+      timestamp: 20,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        usage: { totalTokens: 5_000 },
+      },
+    };
+    const coveredTail = [
+      {
+        id: "m3",
+        type: "message",
+        timestamp: 30,
+        message: { role: "user", content: "abcd" },
+      },
+      {
+        id: "m4",
+        type: "message",
+        timestamp: 40,
+        message: { role: "user", content: "efgh" },
+      },
+    ];
+
+    // No trusted usage → chars/4 estimate → appends.
+    const appended = build({
+      branchEntries: [cs1, ...coveredTail],
+      freshSummary: fresh,
+      aggregateSummary: "[Goal]\nfolded state",
+      trailingSummary: trailing,
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+      contextWindowTokens: estimateWindow,
+    });
+    expect(appended.chainStart).toBe(false);
+    expect(appended.segment.sequence).toBe(2);
+
+    // Real usage far above the estimate → the projection crosses half → fold.
+    const rebased = build({
+      branchEntries: [cs1, usageEntry, ...coveredTail],
+      freshSummary: fresh,
+      aggregateSummary: "[Goal]\nfolded state",
+      trailingSummary: trailing,
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+      contextWindowTokens: estimateWindow,
+    });
+    expect(rebased.chainStart).toBe(true);
+    expect(rebased.segment.sequence).toBe(1);
+  });
+
+  it("falls back to the estimate when the usage-anchored projection is inconsistent", () => {
+    const s1 = build({ aggregateSummary: "x".repeat(600) });
+    const cs1 = compactionEntry("cs1", "fallback s1", s1, 10);
+    const chain = collectActiveSegments([cs1]);
+    expect(chain.ok).toBe(true);
+    if (!chain.ok) return;
+    const fresh = "[Goal]\nnext delta";
+    const trailing = "recall\n\ncurrent OM";
+    const estimateWindow =
+      Math.ceil(
+        estimateChainTokens(chain.segments, fresh, trailing) /
+          MAX_CHAIN_WINDOW_RATIO,
+      ) + 50;
+
+    const tinyUsage = {
+      id: "u1",
+      type: "message",
+      timestamp: 20,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        usage: { totalTokens: 5 },
+      },
+    };
+    const heavyTail = [
+      {
+        id: "m3",
+        type: "message",
+        timestamp: 30,
+        message: { role: "user", content: "y".repeat(4000) },
+      },
+      {
+        id: "m4",
+        type: "message",
+        timestamp: 40,
+        message: { role: "user", content: "z".repeat(4000) },
+      },
+    ];
+
+    // usage(5) − covered(~2000) is negative → fall back to the chars/4 path.
+    const appended = build({
+      branchEntries: [cs1, tinyUsage, ...heavyTail],
+      freshSummary: fresh,
+      aggregateSummary: "[Goal]\nfolded state",
+      trailingSummary: trailing,
+      currentCoverage: coverage("m3", "m4", "tail", 2),
+      previousSummaryUsed: true,
+      contextWindowTokens: estimateWindow,
     });
     expect(appended.chainStart).toBe(false);
     expect(appended.segment.sequence).toBe(2);

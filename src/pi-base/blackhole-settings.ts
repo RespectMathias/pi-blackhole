@@ -107,8 +107,7 @@ export const config = new ConfigManager<UnifiedConfig>({
       key: "compactAfterTokens",
       type: "number",
       label: "Auto-compact threshold",
-      description:
-        "Maximum live-context trigger; capped at 65% of active model window",
+      description: "Token count that triggers auto-compaction when reached",
       value: cfg.compactAfterTokens,
       min: 1_000,
       max: 500_000,
