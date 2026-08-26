@@ -1349,10 +1349,16 @@ describe("ConfigManager._ensureSession()", () => {
 
       // Fresh manager: initSession with the entry
       const mgr2 = createManager({ sessionConfig: true });
-      mgr2.initSession("sid-recovery", "leaf-1", entries);
-      // initSession recovery writes to process.cwd(); load must match
-      expect(mgr2.load(process.cwd(), tempDir).threshold).toBe(3);
-      expect(mgr2.load(process.cwd(), tempDir).enabled).toBe(true);
+      mgr2.initSession(
+        "sid-recovery",
+        "leaf-1",
+        entries,
+        undefined,
+        undefined,
+        tempDir,
+      );
+      expect(mgr2.load(tempDir, tempDir).threshold).toBe(3);
+      expect(mgr2.load(tempDir, tempDir).enabled).toBe(true);
     });
 
     // ── flush→reset→save ────────────────────────────────────────────────

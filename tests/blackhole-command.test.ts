@@ -30,6 +30,7 @@ vi.mock("../src/pi-base/settings/config-flow.js", () => ({
 }));
 
 import { registerPiVccCommand } from "../src/commands/pi-vcc.js";
+import { openConfigFlow } from "../src/pi-base/settings/config-flow.js";
 
 function createMockEnvironment() {
   const compactCalls: Array<{
@@ -39,8 +40,12 @@ function createMockEnvironment() {
   }> = [];
   const appendEntryCalls: Array<{ customType: string; data: unknown }> = [];
   const notifyCalls: Array<{ msg: string; level: string }> = [];
+  const eventHandlers = new Map<string, (event: unknown, ctx: any) => void>();
 
   const pi = {
+    on: vi.fn((name: string, handler: (event: unknown, ctx: any) => void) => {
+      eventHandlers.set(name, handler);
+    }),
     registerCommand: vi.fn(
       (
         name: string,
@@ -127,6 +132,7 @@ function createMockEnvironment() {
     compactCalls,
     appendEntryCalls,
     notifyCalls,
+    eventHandlers,
   };
 }
 
@@ -166,6 +172,106 @@ describe("/blackhole command", () => {
       (c) => c.value,
     );
     expect(configMatches).toEqual(["settings"]);
+  });
+
+  it("refreshes runtime config after saving settings", async () => {
+    const { pi, runtime, handlerMap, makeHandlerArgs } =
+      createMockEnvironment();
+    vi.mocked(openConfigFlow).mockImplementationOnce(async (params: any) => {
+      await params.save({ retainedToolOutputMaxTokens: 9_000 }, "global");
+    });
+    registerPiVccCommand(pi as any, runtime as any);
+
+    await handlerMap.get("blackhole")!("settings", makeHandlerArgs());
+
+    expect(runtime.config.retainedToolOutputMaxTokens).toBe(9_000);
+  });
+
+  it("recovers a persisted session budget on session_start", () => {
+    const { pi, runtime, eventHandlers } = createMockEnvironment();
+    registerPiVccCommand(pi as any, runtime as any);
+    const sessionFile = join(testRoot, "session.jsonl");
+    writeFileSync(sessionFile, "");
+    const sessionConfigEntry = {
+      id: "config-1",
+      parentId: "leaf-1",
+      type: "custom",
+      customType: "session-config-pi-blackhole",
+      data: {
+        leafId: "leaf-1",
+        config: { retainedToolOutputMaxTokens: 7_000 },
+      },
+    };
+
+    eventHandlers.get("session_start")!(undefined, {
+      cwd: testRoot,
+      sessionManager: {
+        getSessionId: () => "session-1",
+        getLeafId: () => "leaf-1",
+        getSessionFile: () => sessionFile,
+        getEntries: () => [
+          {
+            id: "leaf-1",
+            parentId: null,
+            type: "message",
+            message: { role: "user", content: "question" },
+          },
+          sessionConfigEntry,
+        ],
+        appendCustomEntry: vi.fn(),
+      },
+    });
+
+    expect(runtime.config.retainedToolOutputMaxTokens).toBe(7_000);
+  });
+
+  it("does not leak a session budget into a new session without a leaf", () => {
+    const { pi, runtime, eventHandlers } = createMockEnvironment();
+    registerPiVccCommand(pi as any, runtime as any);
+    const start = eventHandlers.get("session_start")!;
+    const sessionFile = join(testRoot, "session.jsonl");
+    writeFileSync(sessionFile, "");
+    const firstEntries = [
+      {
+        id: "leaf-1",
+        parentId: null,
+        type: "message",
+        message: { role: "user", content: "question" },
+      },
+      {
+        id: "config-1",
+        parentId: "leaf-1",
+        type: "custom",
+        customType: "session-config-pi-blackhole",
+        data: {
+          leafId: "leaf-1",
+          config: { retainedToolOutputMaxTokens: 7_000 },
+        },
+      },
+    ];
+    start(undefined, {
+      cwd: testRoot,
+      sessionManager: {
+        getSessionId: () => "session-1",
+        getLeafId: () => "leaf-1",
+        getSessionFile: () => sessionFile,
+        getEntries: () => firstEntries,
+        appendCustomEntry: vi.fn(),
+      },
+    });
+
+    start(undefined, {
+      cwd: testRoot,
+      sessionManager: {
+        getSessionId: () => "session-2",
+        getLeafId: () => null,
+        getSessionFile: () => undefined,
+        getEntries: () => [],
+        appendCustomEntry: vi.fn(),
+      },
+    });
+
+    expect(runtime.config.retainedToolOutputMaxTokens).toBe(20_000);
   });
 
   it("calls ctx.compact with PI_VCC_COMPACT_INSTRUCTION", async () => {

@@ -278,6 +278,7 @@ export class ConfigManager<T extends object> {
         sm.getEntries?.() ?? [],
         appendEntryFn,
         () => sm.getEntries?.(),
+        cwd,
       );
       this._sessionPersist = "persisted";
       this._sessionManager = mutable; // keep facade for identity guard (F1)
@@ -409,12 +410,19 @@ export class ConfigManager<T extends object> {
     this._sessionPersist = "persisted";
     return Object.keys(pendingConfig).length > 0;
   }
+
+  /** Synchronize session-scoped state from a live extension context. */
+  syncSession(ctx: ExtensionContext, cwd: string): boolean {
+    return this._ensureSession(ctx, cwd);
+  }
+
   initSession(
     sessionId: string,
     leafId: string,
     entries: FileEntry[],
     appendEntry?: (type: string, data: unknown) => void,
     getEntries?: () => FileEntry[],
+    cwd: string = process.cwd(),
   ): void {
     if (
       this.opts.scopes?.session === false ||
@@ -444,13 +452,7 @@ export class ConfigManager<T extends object> {
         const data = entry.data as
           { leafId: string; config: Record<string, unknown> } | undefined;
         if (data && data.leafId === leafId) {
-          setSessionConfig(
-            entryType,
-            process.cwd(),
-            sessionId,
-            leafId,
-            data.config,
-          );
+          setSessionConfig(entryType, cwd, sessionId, leafId, data.config);
           break;
         }
       }

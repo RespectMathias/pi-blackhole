@@ -31,6 +31,12 @@ import {
 } from "../pi-base/blackhole-settings.js";
 
 export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
+  pi.on("session_start", (_event, ctx) => {
+    config.syncSession(ctx, ctx.cwd);
+    runtime.config = config.loadWithWarnings(ctx.cwd, GLOBAL_CONFIG_DIR).config;
+    runtime.configLoaded = true;
+  });
+
   const prefixMatch = (value: string, prefix: string): boolean => {
     return value.toLowerCase().startsWith(prefix.toLowerCase());
   };
@@ -69,6 +75,11 @@ export const registerPiVccCommand = (pi: ExtensionAPI, runtime: Runtime) => {
       if (trimmed === "configure" || trimmed === "settings") {
         // Open the config overlay ("configure" kept as a hidden alias)
         await openBlackholeSettings(ctx);
+        runtime.config = config.loadWithWarnings(
+          ctx.cwd,
+          GLOBAL_CONFIG_DIR,
+        ).config;
+        runtime.configLoaded = true;
         return;
       }
       if (trimmed === "cleanup") {

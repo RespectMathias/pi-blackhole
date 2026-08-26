@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Added
+
+- **Newest-first retained tool-output budgeting.** Historical tool and shell output text now uses a dedicated provider-context budget. Recent consumed text retains full fidelity, while older or oversized text becomes compact `recall #N` references without changing raw session history or compaction inputs. Pending results and non-text content remain visible. Configure with `retainedToolOutputMaxTokens` or `PI_BLACKHOLE_RETAINED_TOOL_OUTPUT_MAX_TOKENS`.
+
+---
+
 ## [0.4.8] - 2026-08-23
 
 ### Added

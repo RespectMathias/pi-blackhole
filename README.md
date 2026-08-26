@@ -290,6 +290,7 @@ Everything else has sensible defaults.
 | `compaction` | `"auto"` | When compaction triggers: `"auto"` (blackhole auto-fires), `"manual"` (only `/blackhole`), `"off"` (Pi handles auto + `/compact`, `/blackhole` still works) |
 | `compactionEngine` | `"blackhole"` | Which engine handles auto-compaction: `"blackhole"` or `"pi-default"`. Only meaningful when `compaction: "auto"` — for `"manual"`/`"off"` the hook lets Pi handle everything except `/blackhole` |
 | `tailBehavior` | `"minimal"` | How much stays visible after compaction: `"minimal"` (last user message only, default) or `"pi-default"` (gentle, ~20k tokens). Both `/blackhole` and auto-triggered default to `"minimal"`; set explicitly to opt into gentler cut |
+| `retainedToolOutputMaxTokens` | `20000` | Dedicated budget for historical tool-output text in provider context. Newest consumed text is retained first; older or oversized text becomes compact `recall #N` markers while raw session history remains unchanged. Pending results and non-text parts such as images remain visible. |
 | `midRunCompaction` | `"off"` | `"resume"` *(experimental)* opts into transparent compaction during long tool loops without replacing the active run; `"pause"` interrupts, compacts, and stops; `"off"` only checks when the run ends. Transparent mode fails closed on unsupported Pi internals. |
 | `memory` | `true` | `false` = OM workers off + no memory injection (compaction still runs) |
 | `model` | — | Base fallback model for all workers (last resort before session model) |
@@ -329,6 +330,7 @@ Paste the appropriate block into your config to match your main session model's 
   "observeAfterTokens": 5000,
   "reflectAfterTokens": 10000,
   "compactAfterTokens": 30000,
+  "retainedToolOutputMaxTokens": 8000,
   "observerChunkMaxTokens": 15000,
   "observerPreambleMaxTokens": 0,
   "observationsPoolMaxTokens": 8000,
@@ -347,6 +349,7 @@ These are the built-in defaults. If you reset your config, these are what you ge
   "observeAfterTokens": 15000,
   "reflectAfterTokens": 25000,
   "compactAfterTokens": 81000,
+  "retainedToolOutputMaxTokens": 20000,
   "observerChunkMaxTokens": 40000,
   "observerPreambleMaxTokens": 0,
   "observationsPoolMaxTokens": 20000,
@@ -363,6 +366,7 @@ These are the built-in defaults. If you reset your config, these are what you ge
   "observeAfterTokens": 20000,
   "reflectAfterTokens": 40000,
   "compactAfterTokens": 180000,
+  "retainedToolOutputMaxTokens": 50000,
   "observerChunkMaxTokens": 80000,
   "observerPreambleMaxTokens": 0,
   "observationsPoolMaxTokens": 40000,
