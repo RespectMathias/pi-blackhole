@@ -417,7 +417,7 @@ export const config = new ConfigManager<UnifiedConfig>({
       if (
         typeof v !== "number" ||
         !Number.isFinite(v) ||
-        !Number.isInteger(v) ||
+        (k === "retainedToolOutputMaxTokens" && !Number.isInteger(v)) ||
         v < minVal
       ) {
         (merged as unknown as Record<string, unknown>)[k] = DEFAULTS[k];

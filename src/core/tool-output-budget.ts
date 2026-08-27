@@ -12,12 +12,15 @@ export interface ToolOutputBudgetResult {
 const isToolOutput = (message: any): boolean =>
   message?.role === "toolResult" || message?.role === "bashExecution";
 
-const outputText = (message: any): string =>
-  message.role === "bashExecution"
-    ? typeof message.output === "string"
-      ? message.output
-      : ""
-    : textOf(message.content);
+const outputText = (message: any): string => {
+  if (message.role === "bashExecution") {
+    return typeof message.output === "string" ? message.output : "";
+  }
+  if (typeof message.content === "string" || Array.isArray(message.content)) {
+    return textOf(message.content);
+  }
+  return "";
+};
 
 const omissionMarker = (recallIndex?: number): string =>
   `[Tool output text omitted from active context; ${recallIndex === undefined ? "use recall" : `recall #${recallIndex}`}.]`;

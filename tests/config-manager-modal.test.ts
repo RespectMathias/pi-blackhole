@@ -107,4 +107,20 @@ describe("openSettings configDir forwarding (canonical config-flow)", () => {
       config.load(testDir, GLOBAL_CONFIG_DIR).retainedToolOutputMaxTokens,
     ).toBe(20_000);
   });
+
+  it("does not make existing numeric settings integer-only", async () => {
+    const { config, GLOBAL_CONFIG_DIR } =
+      await import("../src/pi-base/blackhole-settings.js");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true });
+    writeFileSync(
+      join(GLOBAL_CONFIG_DIR, "pi-blackhole-config.json"),
+      JSON.stringify({ compactAfterTokens: 81_000.5 }),
+    );
+
+    expect(config.load(testDir, GLOBAL_CONFIG_DIR).compactAfterTokens).toBe(
+      81_000.5,
+    );
+  });
+
 });

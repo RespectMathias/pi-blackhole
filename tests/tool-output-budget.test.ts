@@ -81,6 +81,23 @@ describe("applyToolOutputBudget", () => {
     }
   });
 
+  it("treats non-string/non-array tool-result content as textless", () => {
+    const messages = [
+      {
+        role: "toolResult",
+        toolName: "custom",
+        content: { data: "opaque" },
+      },
+      { role: "assistant", content: "consumed" },
+    ];
+
+    const result = applyToolOutputBudget(messages, 1);
+
+    expect(result.messages).toBe(messages);
+    expect(result.retainedTokens).toBe(0);
+    expect(result.omittedCount).toBe(0);
+  });
+
   it("leaves image-only results unchanged after the text budget is exhausted", () => {
     const image = { type: "image", data: "encoded", mimeType: "image/png" };
     const messages = [
